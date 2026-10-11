@@ -84,6 +84,12 @@ line, it keeps running: CCUsageX calls it with `--chain` and shows its output, a
 line exactly and removes the saved key. `--dry-run` shows the change without writing anything. An invalid
 `settings.json` stops the installer before it writes anything.
 
+## I use the VS Code extension. Why do the limits not update?
+
+The numbers come from Claude Code's status line, and only the terminal `claude` app runs status lines. The VS Code
+panel does not. Send a message in terminal `claude` and the card updates within a second. Values older than 15 minutes
+are marked stale, with the time of the last update.
+
 ## Why are there no Opus or Sonnet limits?
 
 Claude Code reports only two overall windows to the status line: the 5-hour session window and the 7-day weekly window.

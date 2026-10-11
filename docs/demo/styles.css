@@ -423,3 +423,8 @@ table.mini th, table.mini td { padding: 7px 10px; }
 body[data-view="live"] #seg-range, body[data-view="live"] .topbar-in > .r2,
 body[data-view="live"] .topbar-in > .tb-break, body[data-view="live"] #export-btn { display: none; }
 body[data-view="live"] .topbar-in { padding-bottom: 10px; }
+
+/* Keep the first toolbar row on one line next to the plan-limits pill: the "updated" time is repeated in the hero. */
+#live-state { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live { min-width: 0; }
+@media (max-width: 1560px) { #live-updated { display: none; } }

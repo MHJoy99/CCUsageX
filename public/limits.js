@@ -230,15 +230,15 @@
       '<details class="lim-det"><summary>Or add it to settings.json by hand</summary>' +
       '<p class="lim-sm">In <code>~/.claude/settings.json</code>, with the path to your CCUsageX folder:</p>' + copyRow(SETUP_JSON, 'settings.json snippet', true) + '</details>' +
       '<p class="lim-hint">' + IC.clock + 'Already set up? Numbers appear after Claude\u2019s next reply.</p>' +
-      '<p class="lim-hint lim-hint2">Limits are reported by Claude Code\u2019s status line. If you only use the VS Code panel and nothing appears, run <code>claude</code> once in a terminal.</p></div>' +
+      '<p class="lim-hint lim-hint2">Limits are reported by Claude Code\u2019s status line. The VS Code panel doesn’t run status lines, so send a message in <code>claude</code> in a terminal.</p></div>' +
       '</div>' + ghostRings();
   }
   function waitingBody() {
     return '<div class="lim-note">' +
       '<div class="lim-note-ic">' + IC.gauge + '</div>' +
       '<div class="lim-note-t"><h4>Connected — waiting for the first report</h4>' +
-      '<p>CCUsageX is set up in Claude Code’s status line. Your 5-hour and weekly usage appear here after Claude’s next reply in a session that shows the status line. Nothing to log in to.</p>' +
-      '<p class="lim-hint">' + IC.clock + 'Start a new Claude Code session, or run <code>claude</code> once in a terminal, and send any message.</p></div>' +
+      '<p>CCUsageX is set up in Claude Code’s status line. Your 5-hour and weekly usage appear here after Claude’s next reply in the terminal app. The VS Code panel doesn’t run status lines, so it can’t report them.</p>' +
+      '<p class="lim-hint">' + IC.clock + 'Run <code>claude</code> in a terminal and send any message.</p></div>' +
       '</div>' + ghostRings();
   }
   function nosubBody() {
@@ -418,7 +418,8 @@
     var age = M.updatedAt ? now() - M.updatedAt : 0;
     if (!M.updatedAt) return '';
     return (M.stale ? '<span class="lim-chip sm" data-st="stale">' + IC.clock + 'Stale</span>' : '<span class="lim-live-dot" aria-hidden="true"></span>') +
-      '<span class="lim-upd">' + (M.stale ? 'Last update ' + ago(age) + ' \u2014 values may be behind' : 'Updated ' + ago(age)) + '</span>';
+      '<span class="lim-upd"' + (M.stale ? ' title="Plan limits come from Claude Code\u2019s status line, which runs in the terminal app, not the VS Code panel."' : '') + '>' +
+      (M.stale ? 'Last update ' + ago(age) + ' \u2014 send a message in terminal <code>claude</code> to refresh' : 'Updated ' + ago(age)) + '</span>';
   }
 
   function paintPill(host) {
