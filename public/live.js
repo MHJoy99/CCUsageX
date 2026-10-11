@@ -1128,7 +1128,7 @@
   function trayTs(a) { return a.phase === 'done' ? (a.endTs || a.lastTs) : a.lastTs; }
   function layoutTree(s, G, geo) {
     var n = G.shown.length, W = geo.W, H = geo.H, pos = {};
-    if (!G.subs) { pos.main = { x: geo.mainCol / 2 + 3, y: H * 0.42 }; return pos; }
+    if (!G.subs) { pos.main = { x: geo.mainCol / 2 + 3, y: H * 0.46 }; return pos; }
     var top = 14, bot = G.overflow.length ? 38 : 14, availH = H - top - bot, pitch = Math.min(64, availH / Math.max(1, n));
     pos.main = { x: geo.mainCol / 2 + 3, y: top + availH / 2 - 8 };
     var y0 = top + availH / 2 - (n - 1) * pitch / 2;
@@ -1339,7 +1339,7 @@
       el._c.style.display = isM ? '' : 'none';
       var w, left, top;
       if (isM) {
-        w = G.subs ? geo.mainCol - 2 : Math.min(230, W - 16); left = clamp(p.x - w / 2, 2, Math.max(2, W - w - 2)); top = p.y + R + 10;
+        w = geo.mainCol + 20; left = clamp(p.x - w / 2, 2, Math.max(2, W - w - 2)); top = p.y + R + 20; // clear of the phase ring and tool badge
         el.className = 'lv-nl main'; el.style.textAlign = 'center';
       } else {
         left = geo.subX + R + 10; w = Math.max(60, W - left - 6); top = p.y - 23;

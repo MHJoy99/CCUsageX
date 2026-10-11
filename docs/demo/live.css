@@ -101,7 +101,7 @@
 .lv-tl .lv-cv { height: 232px; flex: none; }
 .lv-tree .lv-cv { flex: 1 0 auto; height: 240px; min-height: 240px; }
 .lv-tree[data-sz="full"] .lv-cv { height: 340px; min-height: 340px; }
-.lv-tree[data-sz="solo"] .lv-cv { height: 150px; min-height: 150px; }
+.lv-tree[data-sz="solo"] .lv-cv { height: 196px; min-height: 196px; }
 .lv-lanes .lv-cv { flex: 1; height: auto; min-height: 340px; }
 .lv-lscroll { position: absolute; left: 0; right: 0; top: 0; bottom: 26px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--axis) transparent; overscroll-behavior: contain; }
 .lv-cv .lv-lscroll canvas { position: relative; inset: auto; display: block; width: 100%; height: auto; }
