@@ -644,8 +644,8 @@ must finish in about 100 ms. A non-zero exit or no output blanks the status line
 - **No per-model windows from the status line.** Only the `/usage` report carries `weekly_scoped` limits; the card
   shows them when present and never estimates them.
 - **Pro and Max only.** Other plans send no `rate_limits`. The card then says so.
-- **Status line: after the first reply, terminal only.** A new session has no numbers until its first response, and the
-  VS Code panel never runs the status line. The `/usage` probe covers that case.
+- **Status line: after the first reply.** A new session has no numbers until its first response, and in our tests the
+  VS Code panel did not run the status line. The `/usage` probe covers that case.
 - **No history before the first probe or setup.**
 - **No direct API calls.** CCUsageX does not call usage endpoints and does not read `~/.claude/.credentials.json`.
 

@@ -265,7 +265,7 @@
       '<details class="lim-det"><summary>Or add it to settings.json by hand</summary>' +
       '<p class="lim-sm">In <code>~/.claude/settings.json</code>, with the path to your CCUsageX folder:</p>' + copyRow(SETUP_JSON, 'settings.json snippet', true) + '</details>' +
       '<p class="lim-hint">' + IC.clock + 'Already set up? Numbers appear after Claude\u2019s next reply.</p>' +
-      '<p class="lim-hint lim-hint2">The status line works only in terminal <code>claude</code> sessions.</p></div>' +
+      '<p class="lim-hint lim-hint2">In our tests only terminal <code>claude</code> sessions ran the status line.</p></div>' +
       '</div>' + ghostRings();
   }
   function waitingBody() {
@@ -273,7 +273,7 @@
       '<div class="lim-note-ic">' + IC.gauge + '</div>' +
       '<div class="lim-note-t"><h4>Connected — waiting for the first report</h4>' +
       '<p>CCUsageX is set up in Claude Code’s status line. Your 5-hour and weekly usage appear here after Claude’s next reply in a terminal session' + probeWhy() + '.</p>' +
-      '<p class="lim-hint">' + IC.clock + 'Run <code>claude</code> in a terminal and send any message. The status line works only in terminal sessions.</p></div>' +
+      '<p class="lim-hint">' + IC.clock + 'Run <code>claude</code> in a terminal and send any message. In our tests only terminal sessions ran the status line.</p></div>' +
       '</div>' + ghostRings();
   }
   function nosubBody() {

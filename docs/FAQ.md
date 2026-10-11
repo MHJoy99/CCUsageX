@@ -90,7 +90,7 @@ line exactly and removes the saved key. `--dry-run` shows the change without wri
 ## I use the VS Code extension. Do the limits update?
 
 Yes. The numbers come from Claude Code's `/usage` report, which CCUsageX asks for in the background, so they do not
-depend on which Claude Code app you use. Only the optional status line works in terminal sessions alone.
+depend on which Claude Code app you use. In our tests the optional status line reported only from terminal sessions.
 
 ## Are there Opus or Sonnet limits?
 

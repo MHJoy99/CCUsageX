@@ -140,8 +140,8 @@ Things to know:
 
 - **Pro and Max only.** Claude Code reports these limits for claude.ai subscriptions. With an API key, a third-party
   provider, or a login without profile access, the report has no limits and the card says so.
-- **Terminal only for the status line.** The status line runs only in terminal `claude` sessions; the `/usage` probe
-  does not depend on it.
+- **The status line is optional.** In our tests only terminal `claude` sessions ran it, and the VS Code panel did not;
+  the `/usage` probe does not depend on it.
 - **Local data only.** Snapshots are written to `~/.ccusagex/limits/` (or `$CCU_DATA_DIR/limits/`). CCUsageX makes no
   network request itself; it only runs the local `claude` command above and never reads your credentials.
 
