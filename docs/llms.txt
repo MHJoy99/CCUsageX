@@ -1,0 +1,23 @@
+# CCUsageX
+
+> CCUsageX is a free, open-source (MIT), local-only web dashboard for Claude Code usage. It reads Claude Code's own transcript logs (read-only) and shows every prompt, request, model, token type (input, output, cache write, cache read, thinking), API-equivalent cost, cache hit rate and savings, response time, tools, sessions and projects. Zero dependencies (Node.js 18+), binds to 127.0.0.1 only, nothing leaves the machine. Run it with `npx github:MHJoy99/CCUsageX`.
+
+CCUsageX is a Claude Code usage dashboard, token usage analyzer and cost tracker. Costs are API-equivalent: what the usage would cost at Anthropic API list prices, which is useful even on a Pro or Max subscription.
+
+## Docs
+
+- [README](https://github.com/MHJoy99/CCUsageX#readme): what it is, install, configuration
+- [FAQ](https://github.com/MHJoy99/CCUsageX/blob/main/docs/FAQ.md): common questions about usage, cost, logs and privacy
+- [Architecture](https://github.com/MHJoy99/CCUsageX/blob/main/docs/ARCHITECTURE.md): how scanning, pricing, storage and the API work
+- [Full plain-text description for LLMs](https://mhjoy99.github.io/CCUsageX/llms-full.txt): everything above in one file
+
+## Try it
+
+- [Live demo (fictional data, runs in the browser)](https://mhjoy99.github.io/CCUsageX/demo/)
+- [Project website](https://mhjoy99.github.io/CCUsageX/)
+- [Source code on GitHub](https://github.com/MHJoy99/CCUsageX)
+
+## Optional
+
+- [Issues](https://github.com/MHJoy99/CCUsageX/issues)
+- [ccusage](https://github.com/ryoppippi/ccusage): CLI usage reports, a complementary tool

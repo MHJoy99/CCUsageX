@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest a new view, metric, export or change
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        CCUsageX is deliberately small: no npm dependencies, no build step, no network access. Requests that keep
+        those properties are the easiest to accept.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to find out or do that you cannot do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should CCUsageX do? A rough sketch of the screen, metric or API field is enough.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Workarounds, other tools, or existing features that come close.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Dashboard UI
+        - Charts
+        - HTTP API
+        - Pricing and cost
+        - Transcript parsing and attribution
+        - Store and persistence
+        - Windows launcher
+        - Documentation
+        - Other
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues and found no duplicate.
+          required: true
+        - label: The request does not need a new runtime dependency or network access, or I have explained why it does.

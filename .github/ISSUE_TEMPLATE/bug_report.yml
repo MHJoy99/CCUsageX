@@ -1,0 +1,109 @@
+name: Bug report
+description: Something is broken, or the numbers do not match what you expect
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not paste prompt text, transcripts or the contents of `store.json`.
+        Describe the problem in your own words. If you need to show data, use a short synthetic example.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, in a few sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps. Include the view, the filters, or the API call you used.
+      placeholder: |
+        1. Open the dashboard
+        2. Set the range to 7 days
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Output of `node -v`
+      placeholder: "v22.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: ccusagex-version
+    attributes:
+      label: CCUsageX version or commit
+      description: "Version (for example 1.0.0), or the commit from `git rev-parse --short HEAD`."
+    validations:
+      required: true
+
+  - type: input
+    id: claude-code-version
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options:
+        - Microsoft Edge
+        - Google Chrome
+        - Firefox
+        - Safari
+        - Other
+
+  - type: textarea
+    id: api-response
+    attributes:
+      label: API response (optional)
+      description: |
+        For data problems, paste the relevant part of `/api/status` or the endpoint you were looking at.
+        Remove file paths and anything personal first.
+      render: json
+
+  - type: textarea
+    id: server-log
+    attributes:
+      label: Server output (optional)
+      description: The last lines of `logs/server.err.log` (Windows launcher), or the terminal output of `node server.js`.
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues and found no duplicate.
+          required: true
+        - label: I removed prompt text, transcripts and personal paths from anything I pasted.
+          required: true

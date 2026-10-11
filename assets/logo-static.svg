@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t d">
+<title id="t">CCUsageX</title>
+<desc id="d">CCUsageX app icon: a prompt caret beside three rising bars on a purple gradient rounded square.</desc>
+<defs>
+<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b3df5"/><stop offset=".55" stop-color="#3a1d9e"/><stop offset="1" stop-color="#1b0b4a"/></linearGradient>
+<radialGradient id="pk" cx=".95" cy=".02" r=".85"><stop offset="0" stop-color="#c13584" stop-opacity=".75"/><stop offset="1" stop-color="#c13584" stop-opacity="0"/></radialGradient>
+<radialGradient id="hl" cx=".2" cy=".05" r=".7"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+<linearGradient id="bp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#ffd0ea"/></linearGradient>
+</defs>
+<rect width="256" height="256" rx="58" fill="url(#g)"/>
+<rect class="gl" width="256" height="256" rx="58" fill="url(#pk)" opacity=".6"/>
+<rect width="256" height="256" rx="58" fill="url(#hl)"/>
+<rect x=".75" y=".75" width="254.5" height="254.5" rx="57.5" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="1.5"/>
+<path class="cv" d="M50 132L84 164L50 196" fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+<path class="b b0"  fill="url(#bp)" d="M104 200V64a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8V200Z"/>
+<path class="b b1"  fill-opacity=".82" fill="#fff" d="M146 200V108a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8V200Z"/>
+<path class="b b2"  fill-opacity=".62" fill="#fff" d="M188 200V150a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8V200Z"/>
+</svg>

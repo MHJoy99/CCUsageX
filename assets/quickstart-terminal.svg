@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" role="img" aria-labelledby="ttl dsc">
+<title id="ttl">CCUsageX quick start in a terminal</title>
+<desc id="dsc">Animated terminal: git clone and cd into CCUsageX, then node server.js. CCUsageX starts on 127.0.0.1:3020 and reports 1,284 requests indexed, 96 prompts and 14 sessions, an API-equivalent cost of $87.42 and a cache hit rate of 96.1%. Loops every 10 seconds.</desc>
+<style>.t{font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:15px;fill:#e6edf3}
+.p{fill:#a58bff}.u{fill:#58a6ff}.g{fill:#3fb950}.m{fill:#8b949e}.b{font-weight:700}
+.ui{font-family:-apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif}
+.card{fill:#ffffff}.edge{stroke:#d0d7de}
+.bar{fill:#161b22}.body{fill:#010409}.sep{stroke:#30363d}
+.dot1{fill:#ff5f57}.dot2{fill:#febc2e}.dot3{fill:#28c840}
+@media (prefers-color-scheme: dark){.card{fill:#0d1117}.edge{stroke:#30363d}}
+@keyframes clip1{0%{width:4px}4.300%{width:13px}4.600%{width:22px}4.900%{width:31px}5.200%{width:40px}5.500%{width:49px}5.800%{width:58px}6.100%{width:67px}6.400%{width:76px}6.700%{width:85px}7.000%{width:94px}7.300%{width:103px}7.600%{width:112px}7.900%{width:121px}8.200%{width:130px}8.500%{width:139px}8.800%{width:148px}9.100%{width:157px}9.400%{width:166px}9.700%{width:175px}10.000%{width:184px}10.300%{width:193px}10.600%{width:202px}10.900%{width:211px}11.200%{width:220px}11.500%{width:229px}11.800%{width:238px}12.100%{width:247px}12.400%{width:256px}12.700%{width:265px}13.000%{width:274px}13.300%{width:283px}13.600%{width:292px}13.900%{width:301px}14.200%{width:310px}14.500%{width:319px}14.800%{width:328px}15.100%{width:337px}15.400%{width:346px}15.700%{width:355px}16.000%{width:364px}16.300%{width:373px}16.600%{width:382px}16.900%{width:391px}17.200%{width:400px}17.500%{width:409px}17.800%{width:418px}18.100%{width:427px}18.400%{width:436px}18.700%{width:445px}19.000%{width:454px}19.300%{width:463px}19.600%{width:472px}19.900%{width:481px}20.200%{width:490px}20.500%{width:499px}20.800%{width:508px}21.100%{width:517px}21.400%{width:526px}21.700%{width:535px}22.000%{width:544px}22.300%{width:553px}22.600%{width:562px}100%{width:562px}}
+@keyframes clip2{0%{width:4px}24.900%{width:13px}25.200%{width:22px}25.500%{width:31px}25.800%{width:40px}26.100%{width:49px}26.400%{width:58px}26.700%{width:67px}27.000%{width:76px}27.300%{width:85px}27.600%{width:94px}27.900%{width:103px}28.200%{width:112px}28.500%{width:121px}28.800%{width:130px}29.100%{width:139px}29.400%{width:148px}100%{width:148px}}
+@keyframes cur{0.000%{transform:translate(50px,92px)}4.300%{transform:translate(59px,92px)}4.600%{transform:translate(68px,92px)}4.900%{transform:translate(77px,92px)}5.200%{transform:translate(86px,92px)}5.500%{transform:translate(95px,92px)}5.800%{transform:translate(104px,92px)}6.100%{transform:translate(113px,92px)}6.400%{transform:translate(122px,92px)}6.700%{transform:translate(131px,92px)}7.000%{transform:translate(140px,92px)}7.300%{transform:translate(149px,92px)}7.600%{transform:translate(158px,92px)}7.900%{transform:translate(167px,92px)}8.200%{transform:translate(176px,92px)}8.500%{transform:translate(185px,92px)}8.800%{transform:translate(194px,92px)}9.100%{transform:translate(203px,92px)}9.400%{transform:translate(212px,92px)}9.700%{transform:translate(221px,92px)}10.000%{transform:translate(230px,92px)}10.300%{transform:translate(239px,92px)}10.600%{transform:translate(248px,92px)}10.900%{transform:translate(257px,92px)}11.200%{transform:translate(266px,92px)}11.500%{transform:translate(275px,92px)}11.800%{transform:translate(284px,92px)}12.100%{transform:translate(293px,92px)}12.400%{transform:translate(302px,92px)}12.700%{transform:translate(311px,92px)}13.000%{transform:translate(320px,92px)}13.300%{transform:translate(329px,92px)}13.600%{transform:translate(338px,92px)}13.900%{transform:translate(347px,92px)}14.200%{transform:translate(356px,92px)}14.500%{transform:translate(365px,92px)}14.800%{transform:translate(374px,92px)}15.100%{transform:translate(383px,92px)}15.400%{transform:translate(392px,92px)}15.700%{transform:translate(401px,92px)}16.000%{transform:translate(410px,92px)}16.300%{transform:translate(419px,92px)}16.600%{transform:translate(428px,92px)}16.900%{transform:translate(437px,92px)}17.200%{transform:translate(446px,92px)}17.500%{transform:translate(455px,92px)}17.800%{transform:translate(464px,92px)}18.100%{transform:translate(473px,92px)}18.400%{transform:translate(482px,92px)}18.700%{transform:translate(491px,92px)}19.000%{transform:translate(500px,92px)}19.300%{transform:translate(509px,92px)}19.600%{transform:translate(518px,92px)}19.900%{transform:translate(527px,92px)}20.200%{transform:translate(536px,92px)}20.500%{transform:translate(545px,92px)}20.800%{transform:translate(554px,92px)}21.100%{transform:translate(563px,92px)}21.400%{transform:translate(572px,92px)}21.700%{transform:translate(581px,92px)}22.000%{transform:translate(590px,92px)}22.300%{transform:translate(599px,92px)}22.600%{transform:translate(608px,92px)}24.600%{transform:translate(50px,118px)}24.900%{transform:translate(59px,118px)}25.200%{transform:translate(68px,118px)}25.500%{transform:translate(77px,118px)}25.800%{transform:translate(86px,118px)}26.100%{transform:translate(95px,118px)}26.400%{transform:translate(104px,118px)}26.700%{transform:translate(113px,118px)}27.000%{transform:translate(122px,118px)}27.300%{transform:translate(131px,118px)}27.600%{transform:translate(140px,118px)}27.900%{transform:translate(149px,118px)}28.200%{transform:translate(158px,118px)}28.500%{transform:translate(167px,118px)}28.800%{transform:translate(176px,118px)}29.100%{transform:translate(185px,118px)}29.400%{transform:translate(194px,118px)}38.900%{transform:translate(68px,244px)}100%{transform:translate(68px,244px)}}
+@keyframes blink{0%{opacity:1}50%{opacity:0}100%{opacity:1}}
+@keyframes o1{0%{opacity:0}31.400%{opacity:0}32.900%{opacity:1}100%{opacity:1}}
+@keyframes o2{0%{opacity:0}33.900%{opacity:0}35.400%{opacity:1}100%{opacity:1}}
+@keyframes o3{0%{opacity:0}36.400%{opacity:0}37.900%{opacity:1}100%{opacity:1}}
+@keyframes pr{0%{opacity:0}38.900%{opacity:0}40.400%{opacity:1}100%{opacity:1}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}</style>
+<rect class="card" width="880" height="300" rx="12"/>
+<clipPath id="win"><rect x="20" y="20" width="840" height="260" rx="10"/></clipPath>
+<g clip-path="url(#win)">
+  <rect class="bar" x="20" y="20" width="840" height="36"/>
+  <rect class="body" x="20" y="56" width="840" height="224"/>
+  <line class="sep" x1="20" y1="56" x2="860" y2="56" stroke-width="1"/>
+</g>
+<rect x="20.5" y="20.5" width="839" height="259" rx="10" fill="none" class="edge" stroke-width="1"/>
+<circle class="dot1" cx="42" cy="38" r="6"/>
+<circle class="dot2" cx="62" cy="38" r="6"/>
+<circle class="dot3" cx="82" cy="38" r="6"/>
+<text class="ui" x="440" y="42.5" text-anchor="middle" font-size="12" fill="#8b949e">CCUsageX</text>
+
+<clipPath id="k1"><rect x="46" y="74" width="562" height="26" style="animation:clip1 10s step-end infinite"/></clipPath>
+<text class="t" x="50" y="92" textLength="558" lengthAdjust="spacing" clip-path="url(#k1)"><tspan class="p">$</tspan><tspan class="d"> git clone </tspan><tspan class="u">https://github.com/MHJoy99/CCUsageX</tspan><tspan class="d"> &amp;&amp; cd CCUsageX</tspan></text>
+
+<clipPath id="k2"><rect x="46" y="100" width="148" height="26" style="animation:clip2 10s step-end infinite"/></clipPath>
+<text class="t" x="50" y="118" textLength="144" lengthAdjust="spacing" clip-path="url(#k2)"><tspan class="p">$</tspan><tspan class="d"> node server.js</tspan></text>
+
+<text class="t" x="50" y="156" opacity="1" style="animation:o1 10s linear infinite"><tspan class="b">CCUsageX</tspan><tspan class="d"> on </tspan><tspan class="u">http://127.0.0.1:3020</tspan><tspan class="m">  (reading ~/.claude/projects, since all)</tspan></text>
+<text class="t" x="50" y="182" opacity="1" style="animation:o2 10s linear infinite"><tspan class="g">✓</tspan><tspan class="d"> indexed 1,284 requests · 96 prompts · 14 sessions</tspan></text>
+<text class="t" x="50" y="208" opacity="1" style="animation:o3 10s linear infinite"><tspan class="g">✓</tspan><tspan class="d"> API-equivalent cost $87.42 · cache hit 96.1%</tspan></text>
+
+<text class="t" x="50" y="244" opacity="1" style="animation:pr 10s linear infinite"><tspan class="p">$</tspan><tspan class="d"> </tspan></text>
+
+<g transform="translate(68,244)" style="animation:cur 10s step-end infinite">
+  <rect class="blk" x="0" y="-13" width="9" height="17" fill="#e6edf3" style="animation:blink 1s step-end infinite"/>
+</g>
+</svg>

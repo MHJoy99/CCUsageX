@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400" role="img" aria-labelledby="speed-title speed-desc">
+  <title id="speed-title">Models &amp; speed</title>
+  <desc id="speed-desc">Output tokens per second by model: haiku-5-5 210 tok/s, sonnet-5-5 135 tok/s, opus-5-5 94 tok/s. Requests and API-equivalent cost: haiku-5-5 101 requests $3.92, sonnet-5-5 571 requests $31.40, opus-5-5 612 requests $52.10. Demo data for the last 30 days.</desc>
+  <style>
+    :root {
+      --card: #ffffff; --border: #d0d7de; --text: #1f2328; --sub: #59636e; --muted: #818b98; --grid: #d0d7de;
+      --c-opus: #2a78d6; --c-sonnet: #eb6834; --c-haiku: #1baf7a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --card: #161b22; --border: #30363d; --text: #e6edf3; --sub: #9198a1; --muted: #656c76; --grid: #30363d;
+        --c-opus: #3987e5; --c-sonnet: #d95926; --c-haiku: #199e70;
+      }
+    }
+    .bg { fill: var(--card); stroke: var(--border); stroke-width: 1; }
+    .sans { font-family: -apple-system, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums; }
+    .title { font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif; font-size: 22px; font-weight: 600; fill: var(--text); }
+    .caption { font-family: -apple-system, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif; font-size: 13px; fill: var(--sub); }
+    .name { font-family: -apple-system, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; fill: var(--text); }
+    .txt { font-family: -apple-system, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif; font-size: 12px; fill: var(--text); font-variant-numeric: tabular-nums; }
+    .head { font-family: -apple-system, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; fill: var(--muted); }
+    .small { font-family: -apple-system, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif; font-size: 11px; fill: var(--muted); }
+    .value { font-family: -apple-system, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; fill: #ffffff; font-variant-numeric: tabular-nums; }
+    .callout-text { font-family: -apple-system, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; fill: #ffffff; }
+    .grid { stroke: var(--grid); stroke-width: 0.75; stroke-dasharray: 2 3; opacity: 0.7; }
+    .axis { stroke: var(--border); stroke-width: 1; }
+    .rule { stroke: var(--border); stroke-width: 1; }
+    .opus { fill: var(--c-opus); }
+    .sonnet { fill: var(--c-sonnet); }
+    .haiku { fill: var(--c-haiku); }
+    .sw-opus { fill: var(--c-opus); }
+    .sw-sonnet { fill: var(--c-sonnet); }
+    .sw-haiku { fill: var(--c-haiku); }
+
+    /* Bars grow from the baseline, staggered, tallest first. Plays once, then rests complete. */
+    .bar { transform-box: fill-box; transform-origin: 50% 100%; animation: grow 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+    .b1 { animation-delay: 0.25s; }
+    .b2 { animation-delay: 0.45s; }
+    .b3 { animation-delay: 0.65s; }
+    @keyframes grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+    /* Numbers and labels fade in. */
+    @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    .value { animation: fade 0.5s ease-out both; }
+    .v1 { animation-delay: 1.0s; }
+    .v2 { animation-delay: 1.2s; }
+    .v3 { animation-delay: 1.4s; }
+    .label { animation: fade 0.6s ease-out 0.2s both; }
+    .rank { animation: fade 0.6s ease-out 0.5s both; }
+
+    /* One shimmer across the tallest bar, clipped to its shape. Rests outside the bar. */
+    .shine { animation: sweep 1.2s ease-in-out 1.6s both; }
+    @keyframes sweep { from { transform: translateX(0); } to { transform: translateX(128px); } }
+
+    /* Table rows rise in, then the callout. */
+    @keyframes rise { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+    .row { animation: rise 0.5s ease-out both; }
+    .r1 { animation-delay: 1.6s; }
+    .r2 { animation-delay: 1.8s; }
+    .r3 { animation-delay: 2.0s; }
+    .total { animation: fade 0.5s ease-out 2.2s both; }
+    .callout { animation: fade 0.6s ease-out 2.3s both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b3df5"/>
+      <stop offset="0.55" stop-color="#3a1d9e"/>
+      <stop offset="1" stop-color="#1b0b4a"/>
+    </linearGradient>
+    <clipPath id="haiku-clip">
+      <path d="M46,330 V134.5 Q46,130.5 50,130.5 H126 Q130,130.5 130,134.5 V330 Z"/>
+    </clipPath>
+  </defs>
+
+  <rect class="bg" x="0.5" y="0.5" width="639" height="399" rx="15.5"/>
+
+  <!-- Header -->
+  <text class="title" x="28" y="46">Models &amp; speed</text>
+  <text class="caption" x="28" y="68">Output tokens per second and cost by model &#183; higher is better</text>
+
+  <!-- Speed chart: 0.95 px per tok/s, baseline y=330 -->
+  <line class="grid" x1="28" y1="130.5" x2="340" y2="130.5"/>
+  <line class="grid" x1="28" y1="230.25" x2="340" y2="230.25"/>
+  <line class="axis" x1="28" y1="330" x2="340" y2="330"/>
+
+  <!-- haiku-5-5 210 tok/s -->
+  <path class="haiku bar b1" d="M46,330 V134.5 Q46,130.5 50,130.5 H126 Q130,130.5 130,134.5 V330 Z"/>
+  <g clip-path="url(#haiku-clip)">
+    <rect class="shine" x="6" y="130" width="28" height="200" fill="url(#sheen)"/>
+  </g>
+  <!-- sonnet-5-5 135 tok/s -->
+  <path class="sonnet bar b2" d="M144,330 V205.75 Q144,201.75 148,201.75 H224 Q228,201.75 228,205.75 V330 Z"/>
+  <!-- opus-5-5 94 tok/s -->
+  <path class="opus bar b3" d="M242,330 V244.7 Q242,240.7 246,240.7 H322 Q326,240.7 326,244.7 V330 Z"/>
+
+  <text class="value v1 sans" x="88" y="153" text-anchor="middle">210 tok/s</text>
+  <text class="value v2 sans" x="186" y="224" text-anchor="middle">135 tok/s</text>
+  <text class="value v3 sans" x="284" y="263" text-anchor="middle">94 tok/s</text>
+
+  <text class="name label" x="88" y="350" text-anchor="middle">haiku-5-5</text>
+  <text class="name label" x="186" y="350" text-anchor="middle">sonnet-5-5</text>
+  <text class="name label" x="284" y="350" text-anchor="middle">opus-5-5</text>
+  <text class="small rank" x="88" y="366" text-anchor="middle">1st &#183; fastest</text>
+  <text class="small rank" x="186" y="366" text-anchor="middle">2nd</text>
+  <text class="small rank" x="284" y="366" text-anchor="middle">3rd &#183; slowest</text>
+
+  <!-- Model table -->
+  <text class="head" x="388" y="132">Model</text>
+  <text class="head" x="540" y="132" text-anchor="end">Requests</text>
+  <text class="head" x="612" y="132" text-anchor="end">Cost</text>
+  <line class="rule" x1="372" y1="142.5" x2="612" y2="142.5"/>
+
+  <g class="row r1">
+    <rect class="sw-haiku" x="372" y="161" width="10" height="10" rx="2"/>
+    <text class="txt" x="388" y="170">haiku-5-5</text>
+    <text class="txt" x="540" y="170" text-anchor="end">101</text>
+    <text class="txt" x="612" y="170" text-anchor="end">$3.92</text>
+  </g>
+  <g class="row r2">
+    <rect class="sw-sonnet" x="372" y="193" width="10" height="10" rx="2"/>
+    <text class="txt" x="388" y="198">sonnet-5-5</text>
+    <text class="txt" x="540" y="198" text-anchor="end">571</text>
+    <text class="txt" x="612" y="198" text-anchor="end">$31.40</text>
+  </g>
+  <g class="row r3">
+    <rect class="sw-opus" x="372" y="221" width="10" height="10" rx="2"/>
+    <text class="txt" x="388" y="226">opus-5-5</text>
+    <text class="txt" x="540" y="226" text-anchor="end">612</text>
+    <text class="txt" x="612" y="226" text-anchor="end">$52.10</text>
+  </g>
+
+  <g class="total">
+    <line class="rule" x1="372" y1="240.5" x2="612" y2="240.5"/>
+    <text class="name" x="388" y="260">Total</text>
+    <text class="name" x="540" y="260" text-anchor="end">1,284</text>
+    <text class="name" x="612" y="260" text-anchor="end">$87.42</text>
+  </g>
+
+  <g class="callout">
+    <rect x="372" y="290" width="240" height="40" rx="10" fill="url(#accent)"/>
+    <text class="callout-text" x="492" y="315" text-anchor="middle">2.2&#215; faster than opus-5-5</text>
+  </g>
+
+  <text class="small" x="28" y="387">Demo data &#183; last 30 days</text>
+</svg>

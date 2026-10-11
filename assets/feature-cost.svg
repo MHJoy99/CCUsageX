@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400" role="img" aria-labelledby="t d">
+<title id="t">Cost per prompt</title>
+<desc id="d">Six example prompts ranked by API-equivalent cost, $4.12 down to $0.41, each column split into output, thinking, cache write, cache read and input token costs.</desc>
+<defs>
+<style>
+.card{fill:#ffffff}
+.edge{fill:none;stroke:#d0d7de;stroke-width:1}
+.title{font:600 20px Georgia,'Iowan Old Style','Palatino Linotype','Times New Roman',serif;fill:#1f2328}
+.cap{font:400 12.5px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#59636e}
+.lg{font:400 11.5px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#59636e}
+.lbl{font:400 11px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#59636e;text-anchor:middle}
+.ax{font:400 11px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#818b98}
+.foot{font:400 11px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#818b98}
+.tot{font:600 12.5px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#1f2328;text-anchor:middle;animation:fade .4s ease-out both}
+.grid{stroke:#e6e9ed;stroke-width:1}
+.base{stroke:#d0d7de;stroke-width:1}
+.c-out{fill:#eb6834}.c-think{fill:#6250d6}.c-cw{fill:#eda100}.c-cr{fill:#1baf7a}.c-in{fill:#2a78d6}
+.col{transform-box:fill-box;transform-origin:50% 100%;animation:grow .9s cubic-bezier(.22,.8,.3,1) both}
+@keyframes grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@media (prefers-color-scheme: dark){
+.card{fill:#0d1117}
+.edge{stroke:#30363d}
+.title,.tot{fill:#e6edf3}
+.cap,.lbl,.lg{fill:#9198a1}
+.ax,.foot{fill:#656c76}
+.grid{stroke:#21262d}
+.base{stroke:#30363d}
+.c-out{fill:#d95926}.c-think{fill:#9085e9}.c-cw{fill:#c98500}.c-cr{fill:#199e70}.c-in{fill:#3987e5}
+}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+<linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5b3df5"/><stop offset=".5" stop-color="#3a1d9e"/><stop offset="1" stop-color="#1b0b4a"/></linearGradient>
+<clipPath id="clip"><rect width="640" height="400" rx="12"/></clipPath>
+</defs>
+<rect class="card" x="0" y="0" width="640" height="400" rx="12"/>
+<rect x="0" y="0" width="640" height="4" fill="url(#acc)" clip-path="url(#clip)"/>
+<text class="title" x="28" y="40">Cost per prompt</text>
+<text class="cap" x="28" y="60">API-equivalent USD, split by token type · lower is better</text>
+<g><rect class="c-out" x="28" y="82" width="10" height="10" rx="2"/><text class="lg" x="43" y="91">output</text><rect class="c-think" x="99.4" y="82" width="10" height="10" rx="2"/><text class="lg" x="114.4" y="91">thinking</text><rect class="c-cw" x="183.60000000000002" y="82" width="10" height="10" rx="2"/><text class="lg" x="198.60000000000002" y="91">cache write</text><rect class="c-cr" x="287" y="82" width="10" height="10" rx="2"/><text class="lg" x="302" y="91">cache read</text><rect class="c-in" x="384" y="82" width="10" height="10" rx="2"/><text class="lg" x="399" y="91">input</text></g>
+<g><line class="grid" x1="72" x2="616" y1="292" y2="292"/><line class="grid" x1="72" x2="616" y1="252" y2="252"/><line class="grid" x1="72" x2="616" y1="212" y2="212"/><line class="grid" x1="72" x2="616" y1="172" y2="172"/><line class="grid" x1="72" x2="616" y1="132" y2="132"/><line class="base" x1="72" x2="616" y1="332" y2="332"/><text class="ax" x="62" y="296" text-anchor="end">$1</text><text class="ax" x="62" y="256" text-anchor="end">$2</text><text class="ax" x="62" y="216" text-anchor="end">$3</text><text class="ax" x="62" y="176" text-anchor="end">$4</text><text class="ax" x="62" y="136" text-anchor="end">$5</text><text class="ax" x="62" y="336" text-anchor="end">$0</text></g>
+<g><g class="col" style="animation-delay:0.00s"><rect class="c-out" x="91.33" y="284.8" width="52" height="47.2"/><rect class="c-think" x="91.33" y="246.4" width="52" height="38.4"/><rect class="c-cw" x="91.33" y="222" width="52" height="24.4"/><rect class="c-cr" x="91.33" y="177.2" width="52" height="44.8"/><path class="c-in" d="M91.33 171.2Q91.33 167.2 95.33 167.2H139.33Q143.33 167.2 143.33 171.2V177.2H91.33Z"/></g><g class="col" style="animation-delay:0.12s"><rect class="c-out" x="182" y="302.4" width="52" height="29.6"/><rect class="c-think" x="182" y="281.6" width="52" height="20.8"/><rect class="c-cw" x="182" y="266.4" width="52" height="15.2"/><rect class="c-cr" x="182" y="234.8" width="52" height="31.6"/><path class="c-in" d="M182 230.4Q182 226.4 186 226.4H230Q234 226.4 234 230.4V234.8H182Z"/></g><g class="col" style="animation-delay:0.24s"><rect class="c-out" x="272.67" y="307.6" width="52" height="24.4"/><rect class="c-think" x="272.67" y="291.2" width="52" height="16.4"/><rect class="c-cw" x="272.67" y="279.2" width="52" height="12"/><rect class="c-cr" x="272.67" y="254.4" width="52" height="24.8"/><path class="c-in" d="M272.67 251.2Q272.67 248 275.87 248H321.47Q324.67 248 324.67 251.2V254.4H272.67Z"/></g><g class="col" style="animation-delay:0.36s"><rect class="c-out" x="363.33" y="308.8" width="52" height="23.2"/><rect class="c-think" x="363.33" y="295.6" width="52" height="13.2"/><rect class="c-cw" x="363.33" y="284.8" width="52" height="10.8"/><rect class="c-cr" x="363.33" y="260.8" width="52" height="24"/><path class="c-in" d="M363.33 258Q363.33 255.2 366.13 255.2H412.53Q415.33 255.2 415.33 258V260.8H363.33Z"/></g><g class="col" style="animation-delay:0.48s"><rect class="c-out" x="454" y="322.4" width="52" height="9.6"/><rect class="c-think" x="454" y="316.4" width="52" height="6"/><rect class="c-cw" x="454" y="311.6" width="52" height="4.8"/><rect class="c-cr" x="454" y="301.2" width="52" height="10.4"/><path class="c-in" d="M454 299.8Q454 298.4 455.4 298.4H504.6Q506 298.4 506 299.8V301.2H454Z"/></g><g class="col" style="animation-delay:0.60s"><rect class="c-out" x="544.67" y="327.2" width="52" height="4.8"/><rect class="c-think" x="544.67" y="324.4" width="52" height="2.8"/><rect class="c-cw" x="544.67" y="322" width="52" height="2.4"/><rect class="c-cr" x="544.67" y="317.2" width="52" height="4.8"/><path class="c-in" d="M544.67 316.4Q544.67 315.6 545.47 315.6H595.87Q596.67 315.6 596.67 316.4V317.2H544.67Z"/></g></g>
+<g><text class="tot" x="117.33" y="160.2" style="animation-delay:0.90s">$4.12</text><text class="tot" x="208" y="219.4" style="animation-delay:1.02s">$2.64</text><text class="tot" x="298.67" y="241" style="animation-delay:1.14s">$2.10</text><text class="tot" x="389.33" y="248.2" style="animation-delay:1.26s">$1.92</text><text class="tot" x="480" y="291.4" style="animation-delay:1.38s">$0.84</text><text class="tot" x="570.67" y="308.6" style="animation-delay:1.50s">$0.41</text></g>
+<g><text class="lbl" x="117.33" y="350">Refactor auth</text><text class="lbl" x="117.33" y="364">middleware</text><text class="lbl" x="208" y="350">Charts API</text><text class="lbl" x="208" y="364">for scatter</text><text class="lbl" x="298.67" y="350">Write the</text><text class="lbl" x="298.67" y="364">README</text><text class="lbl" x="389.33" y="350">Fix flaky test</text><text class="lbl" x="389.33" y="364">in verify.js</text><text class="lbl" x="480" y="350">Explain store</text><text class="lbl" x="480" y="364">.json layout</text><text class="lbl" x="570.67" y="350">Why is the</text><text class="lbl" x="570.67" y="364">scan slow?</text></g>
+<text class="foot" x="28" y="384">Illustrative demo data at Anthropic API list prices.</text>
+<rect class="edge" x="0.5" y="0.5" width="639" height="399" rx="11.5"/>
+</svg>

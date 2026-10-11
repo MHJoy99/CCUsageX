@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 160" width="1280" height="160" role="img" aria-labelledby="ttl dsc">
+<title id="ttl">CCUsageX usage KPIs, last 30 days</title>
+<desc id="dsc">Five KPI tiles for the last 30 days: 1,284 requests, 96 prompts, 182.4M total tokens, $87.42 API-equivalent cost and a 96.1% cache hit rate, each with a small trend sparkline.</desc>
+<style>.card{fill:#ffffff}.edge{stroke:#d0d7de}.sep{stroke:#d0d7de}
+.lbl{font-family:-apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:500;fill:#59636e}
+.num{font-family:-apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;font-size:32px;font-weight:600;fill:#1f2328;font-variant-numeric:tabular-nums}
+.spark{fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:100;stroke-dashoffset:0}
+.s1{stroke:#2a78d6}.s2{stroke:#eb6834}.s3{stroke:#6250d6}.s4{stroke:#eda100}.s5{stroke:#1baf7a}
+.s1-dot{fill:#2a78d6}.s2-dot{fill:#eb6834}.s3-dot{fill:#6250d6}.s4-dot{fill:#eda100}.s5-dot{fill:#1baf7a}
+@media (prefers-color-scheme: dark){
+  .card{fill:#0d1117}.edge{stroke:#30363d}.sep{stroke:#30363d}
+  .lbl{fill:#9198a1}.num{fill:#e6edf3}
+  .s1{stroke:#3987e5}.s2{stroke:#d95926}.s3{stroke:#9085e9}.s4{stroke:#c98500}.s5{stroke:#199e70}
+  .s1-dot{fill:#3987e5}.s2-dot{fill:#d95926}.s3-dot{fill:#9085e9}.s4-dot{fill:#c98500}.s5-dot{fill:#199e70}
+}
+@keyframes tf0{0%{opacity:0}0.000%{opacity:0}5.556%{opacity:1}100%{opacity:1}}
+@keyframes dt0{0%{opacity:0}23.333%{opacity:0}25.000%{opacity:1}100%{opacity:1}}
+@keyframes sd0{0%{stroke-dashoffset:100}10.000%{stroke-dashoffset:100}23.333%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+@keyframes fr00{0%{opacity:1}11.111%{opacity:0}100%{opacity:0}}
+@keyframes fr01{0%{opacity:0}11.111%{opacity:1}14.444%{opacity:0}100%{opacity:0}}
+@keyframes fr02{0%{opacity:0}14.444%{opacity:1}17.778%{opacity:0}100%{opacity:0}}
+@keyframes fr03{0%{opacity:0}17.778%{opacity:1}21.111%{opacity:0}100%{opacity:0}}
+@keyframes fr04{0%{opacity:0}21.111%{opacity:1}24.444%{opacity:0}100%{opacity:0}}
+@keyframes fr05{0%{opacity:0}24.444%{opacity:1}100%{opacity:1}}
+@keyframes tf1{0%{opacity:0}1.333%{opacity:0}6.889%{opacity:1}100%{opacity:1}}
+@keyframes dt1{0%{opacity:0}24.000%{opacity:0}25.667%{opacity:1}100%{opacity:1}}
+@keyframes sd1{0%{stroke-dashoffset:100}10.667%{stroke-dashoffset:100}24.000%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+@keyframes fr10{0%{opacity:1}11.111%{opacity:0}100%{opacity:0}}
+@keyframes fr11{0%{opacity:0}11.111%{opacity:1}14.444%{opacity:0}100%{opacity:0}}
+@keyframes fr12{0%{opacity:0}14.444%{opacity:1}17.778%{opacity:0}100%{opacity:0}}
+@keyframes fr13{0%{opacity:0}17.778%{opacity:1}21.111%{opacity:0}100%{opacity:0}}
+@keyframes fr14{0%{opacity:0}21.111%{opacity:1}24.444%{opacity:0}100%{opacity:0}}
+@keyframes fr15{0%{opacity:0}24.444%{opacity:1}100%{opacity:1}}
+@keyframes tf2{0%{opacity:0}2.667%{opacity:0}8.222%{opacity:1}100%{opacity:1}}
+@keyframes dt2{0%{opacity:0}24.667%{opacity:0}26.333%{opacity:1}100%{opacity:1}}
+@keyframes sd2{0%{stroke-dashoffset:100}11.333%{stroke-dashoffset:100}24.667%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+@keyframes fr20{0%{opacity:1}11.111%{opacity:0}100%{opacity:0}}
+@keyframes fr21{0%{opacity:0}11.111%{opacity:1}14.444%{opacity:0}100%{opacity:0}}
+@keyframes fr22{0%{opacity:0}14.444%{opacity:1}17.778%{opacity:0}100%{opacity:0}}
+@keyframes fr23{0%{opacity:0}17.778%{opacity:1}21.111%{opacity:0}100%{opacity:0}}
+@keyframes fr24{0%{opacity:0}21.111%{opacity:1}24.444%{opacity:0}100%{opacity:0}}
+@keyframes fr25{0%{opacity:0}24.444%{opacity:1}100%{opacity:1}}
+@keyframes tf3{0%{opacity:0}4.000%{opacity:0}9.556%{opacity:1}100%{opacity:1}}
+@keyframes dt3{0%{opacity:0}25.333%{opacity:0}27.000%{opacity:1}100%{opacity:1}}
+@keyframes sd3{0%{stroke-dashoffset:100}12.000%{stroke-dashoffset:100}25.333%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+@keyframes fr30{0%{opacity:1}11.111%{opacity:0}100%{opacity:0}}
+@keyframes fr31{0%{opacity:0}11.111%{opacity:1}14.444%{opacity:0}100%{opacity:0}}
+@keyframes fr32{0%{opacity:0}14.444%{opacity:1}17.778%{opacity:0}100%{opacity:0}}
+@keyframes fr33{0%{opacity:0}17.778%{opacity:1}21.111%{opacity:0}100%{opacity:0}}
+@keyframes fr34{0%{opacity:0}21.111%{opacity:1}24.444%{opacity:0}100%{opacity:0}}
+@keyframes fr35{0%{opacity:0}24.444%{opacity:1}100%{opacity:1}}
+@keyframes tf4{0%{opacity:0}5.333%{opacity:0}10.889%{opacity:1}100%{opacity:1}}
+@keyframes dt4{0%{opacity:0}26.000%{opacity:0}27.667%{opacity:1}100%{opacity:1}}
+@keyframes sd4{0%{stroke-dashoffset:100}12.667%{stroke-dashoffset:100}26.000%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+@keyframes fr40{0%{opacity:1}11.111%{opacity:0}100%{opacity:0}}
+@keyframes fr41{0%{opacity:0}11.111%{opacity:1}14.444%{opacity:0}100%{opacity:0}}
+@keyframes fr42{0%{opacity:0}14.444%{opacity:1}17.778%{opacity:0}100%{opacity:0}}
+@keyframes fr43{0%{opacity:0}17.778%{opacity:1}21.111%{opacity:0}100%{opacity:0}}
+@keyframes fr44{0%{opacity:0}21.111%{opacity:1}24.444%{opacity:0}100%{opacity:0}}
+@keyframes fr45{0%{opacity:0}24.444%{opacity:1}100%{opacity:1}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}</style>
+<rect class="card" width="1280" height="160" rx="12"/>
+<rect x="0.5" y="0.5" width="1279" height="159" rx="12" fill="none" class="edge" stroke-width="1"/>
+<line class="sep" x1="256" y1="28" x2="256" y2="132" stroke-width="1"/>
+<line class="sep" x1="512" y1="28" x2="512" y2="132" stroke-width="1"/>
+<line class="sep" x1="768" y1="28" x2="768" y2="132" stroke-width="1"/>
+<line class="sep" x1="1024" y1="28" x2="1024" y2="132" stroke-width="1"/>
+<g style="animation:tf0 9s linear infinite">
+  <text class="lbl" x="24" y="50">Requests</text>
+  <text class="num" x="24" y="90" opacity="0" style="animation:fr00 9s step-end infinite">0</text>
+  <text class="num" x="24" y="90" opacity="0" style="animation:fr01 9s step-end infinite">214</text>
+  <text class="num" x="24" y="90" opacity="0" style="animation:fr02 9s step-end infinite">690</text>
+  <text class="num" x="24" y="90" opacity="0" style="animation:fr03 9s step-end infinite">1,012</text>
+  <text class="num" x="24" y="90" opacity="0" style="animation:fr04 9s step-end infinite">1,246</text>
+  <text class="num" x="24" y="90" opacity="1" style="animation:fr05 9s step-end infinite">1,284</text>
+  <path class="spark s1" pathLength="100" d="M24.0,130.0L40.0,127.6L56.0,128.2L72.0,124.1L88.0,125.0L104.0,120.9L120.0,122.4L136.0,118.2L152.0,119.1L168.0,115.9L184.0,117.1L200.0,112.6L216.0,113.8L232.0,110.0" style="animation:sd0 9s linear infinite"/>
+  <circle class="s1-dot" cx="232.0" cy="110.0" r="2.5" opacity="1" style="animation:dt0 9s linear infinite"/>
+</g>
+<g style="animation:tf1 9s linear infinite">
+  <text class="lbl" x="280" y="50">Prompts</text>
+  <text class="num" x="280" y="90" opacity="0" style="animation:fr10 9s step-end infinite">0</text>
+  <text class="num" x="280" y="90" opacity="0" style="animation:fr11 9s step-end infinite">12</text>
+  <text class="num" x="280" y="90" opacity="0" style="animation:fr12 9s step-end infinite">40</text>
+  <text class="num" x="280" y="90" opacity="0" style="animation:fr13 9s step-end infinite">67</text>
+  <text class="num" x="280" y="90" opacity="0" style="animation:fr14 9s step-end infinite">85</text>
+  <text class="num" x="280" y="90" opacity="1" style="animation:fr15 9s step-end infinite">96</text>
+  <path class="spark s2" pathLength="100" d="M280.0,127.2L296.0,130.0L312.0,125.9L328.0,127.9L344.0,121.7L360.0,123.4L376.0,119.7L392.0,121.0L408.0,116.6L424.0,117.9L440.0,113.4L456.0,114.8L472.0,112.1L488.0,110.0" style="animation:sd1 9s linear infinite"/>
+  <circle class="s2-dot" cx="488.0" cy="110.0" r="2.5" opacity="1" style="animation:dt1 9s linear infinite"/>
+</g>
+<g style="animation:tf2 9s linear infinite">
+  <text class="lbl" x="536" y="50">Total tokens</text>
+  <text class="num" x="536" y="90" opacity="0" style="animation:fr20 9s step-end infinite">0.0M</text>
+  <text class="num" x="536" y="90" opacity="0" style="animation:fr21 9s step-end infinite">38.1M</text>
+  <text class="num" x="536" y="90" opacity="0" style="animation:fr22 9s step-end infinite">96.7M</text>
+  <text class="num" x="536" y="90" opacity="0" style="animation:fr23 9s step-end infinite">141.2M</text>
+  <text class="num" x="536" y="90" opacity="0" style="animation:fr24 9s step-end infinite">170.9M</text>
+  <text class="num" x="536" y="90" opacity="1" style="animation:fr25 9s step-end infinite">182.4M</text>
+  <path class="spark s3" pathLength="100" d="M536.0,130.0L552.0,127.8L568.0,128.4L584.0,124.6L600.0,125.1L616.0,120.8L632.0,121.9L648.0,117.8L664.0,118.6L680.0,115.7L696.0,116.2L712.0,112.2L728.0,113.2L744.0,110.0" style="animation:sd2 9s linear infinite"/>
+  <circle class="s3-dot" cx="744.0" cy="110.0" r="2.5" opacity="1" style="animation:dt2 9s linear infinite"/>
+</g>
+<g style="animation:tf3 9s linear infinite">
+  <text class="lbl" x="792" y="50">API-equivalent cost</text>
+  <text class="num" x="792" y="90" opacity="0" style="animation:fr30 9s step-end infinite">$0.00</text>
+  <text class="num" x="792" y="90" opacity="0" style="animation:fr31 9s step-end infinite">$11.60</text>
+  <text class="num" x="792" y="90" opacity="0" style="animation:fr32 9s step-end infinite">$38.25</text>
+  <text class="num" x="792" y="90" opacity="0" style="animation:fr33 9s step-end infinite">$62.10</text>
+  <text class="num" x="792" y="90" opacity="0" style="animation:fr34 9s step-end infinite">$79.44</text>
+  <text class="num" x="792" y="90" opacity="1" style="animation:fr35 9s step-end infinite">$87.42</text>
+  <path class="spark s4" pathLength="100" d="M792.0,130.0L808.0,127.7L824.0,128.0L840.0,124.0L856.0,124.9L872.0,121.4L888.0,120.0L904.0,118.9L920.0,116.9L936.0,117.4L952.0,114.6L968.0,113.7L984.0,111.1L1000.0,110.0" style="animation:sd3 9s linear infinite"/>
+  <circle class="s4-dot" cx="1000.0" cy="110.0" r="2.5" opacity="1" style="animation:dt3 9s linear infinite"/>
+</g>
+<g style="animation:tf4 9s linear infinite">
+  <text class="lbl" x="1048" y="50">Cache hit</text>
+  <text class="num" x="1048" y="90" opacity="0" style="animation:fr40 9s step-end infinite">0.0%</text>
+  <text class="num" x="1048" y="90" opacity="0" style="animation:fr41 9s step-end infinite">61.4%</text>
+  <text class="num" x="1048" y="90" opacity="0" style="animation:fr42 9s step-end infinite">88.2%</text>
+  <text class="num" x="1048" y="90" opacity="0" style="animation:fr43 9s step-end infinite">93.7%</text>
+  <text class="num" x="1048" y="90" opacity="0" style="animation:fr44 9s step-end infinite">95.5%</text>
+  <text class="num" x="1048" y="90" opacity="1" style="animation:fr45 9s step-end infinite">96.1%</text>
+  <path class="spark s5" pathLength="100" d="M1048.0,130.0L1064.0,126.8L1080.0,128.4L1096.0,122.0L1112.0,123.6L1128.0,118.0L1144.0,119.6L1160.0,115.6L1176.0,117.2L1192.0,114.0L1208.0,114.8L1224.0,111.6L1240.0,112.4L1256.0,110.0" style="animation:sd4 9s linear infinite"/>
+  <circle class="s5-dot" cx="1256.0" cy="110.0" r="2.5" opacity="1" style="animation:dt4 9s linear infinite"/>
+</g>
+</svg>

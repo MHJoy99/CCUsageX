@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400" role="img" aria-labelledby="t d">
+  <title id="t">Every prompt, priced</title>
+  <desc id="d">Changelog-style timeline of the four most recent prompts, each with its age, requests, API-equivalent cost, turn duration and model. The newest prompt shows a live pulsing dot and its cost ticks up to $4.12.</desc>
+  <style>
+    .card{fill:#ffffff}
+    .border{fill:none;stroke:#d0d7de;stroke-width:1}
+    .title{font:700 24px Georgia,'Iowan Old Style','Palatino Linotype','Times New Roman',serif;fill:#1f2328}
+    .sub{font:400 13px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#59636e}
+    .range{font:500 12px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#818b98}
+    .muted{font:400 12px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#818b98}
+    .prompt{font:600 16px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#1f2328}
+    .chip{fill:#f6f8fa;stroke:#d0d7de;stroke-width:1}
+    .chipt{font:500 12px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#59636e}
+    .costt{font:700 12px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#1f2328}
+    .hair{stroke:#d0d7de;stroke-width:1}
+    .tl{fill:none;stroke:#d0d7de;stroke-width:2;stroke-dasharray:1;animation:draw 1s .2s ease-out both}
+    .dot{fill:#5b3df5;stroke:#ffffff;stroke-width:2}
+    .live{fill:#0ca30c;stroke:#ffffff;stroke-width:2}
+    .ring{fill:#0ca30c;opacity:0;transform-box:fill-box;transform-origin:50% 50%;animation:pulse 1.8s ease-out infinite}
+    .lp{fill:#dafbe1}
+    .lt{font:700 11px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#116329;letter-spacing:.5px}
+    .m-opus{fill:#2a78d6}
+    .m-sonnet{fill:#eb6834}
+    .ent{animation:slide .5s cubic-bezier(.2,.7,.2,1) both}
+    .e1{animation-delay:.3s}
+    .e2{animation-delay:.55s}
+    .e3{animation-delay:.8s}
+    .e4{animation-delay:1.05s}
+    .k0,.k1,.k2,.k3{opacity:0}
+    .k4{opacity:1}
+    .k0{animation:tk0 2s linear both}
+    .k1{animation:tk1 2s linear both}
+    .k2{animation:tk2 2s linear both}
+    .k3{animation:tk3 2s linear both}
+    .k4{animation:tk4 2s linear both}
+    @keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+    @keyframes slide{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
+    @keyframes pulse{0%{transform:scale(1);opacity:.6}100%{transform:scale(2.6);opacity:0}}
+    @keyframes tk0{0%,39.9%{opacity:1}40%,100%{opacity:0}}
+    @keyframes tk1{0%,39.9%{opacity:0}40%,52%{opacity:1}52.1%,100%{opacity:0}}
+    @keyframes tk2{0%,52%{opacity:0}52.1%,65%{opacity:1}65.1%,100%{opacity:0}}
+    @keyframes tk3{0%,65%{opacity:0}65.1%,77.5%{opacity:1}77.6%,100%{opacity:0}}
+    @keyframes tk4{0%,77.5%{opacity:0}77.6%,100%{opacity:1}}
+    @media (prefers-color-scheme: dark) {
+      .card{fill:#0d1117}
+      .border{stroke:#30363d}
+      .title,.prompt,.costt{fill:#e6edf3}
+      .sub,.chipt{fill:#9198a1}
+      .range,.muted{fill:#656c76}
+      .chip{fill:#161b22;stroke:#30363d}
+      .hair,.tl{stroke:#30363d}
+      .dot{fill:#9085e9;stroke:#0d1117}
+      .live{fill:#3fb950;stroke:#0d1117}
+      .ring{fill:#3fb950}
+      .lp{fill:#033a16}
+      .lt{fill:#3fb950}
+      .m-opus{fill:#3987e5}
+      .m-sonnet{fill:#d95926}
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .ring{opacity:0}
+    }
+  </style>
+
+  <!-- card -->
+  <rect class="card" x="0.5" y="0.5" width="639" height="399" rx="16"/>
+  <rect class="border" x="0.5" y="0.5" width="639" height="399" rx="16"/>
+
+  <!-- header -->
+  <text class="title" x="40" y="50">Every prompt, priced</text>
+  <text class="range" x="600" y="50" text-anchor="end">Last 30 days</text>
+  <text class="sub" x="40" y="72">Read each prompt and what it cost, including its subagents</text>
+  <line class="hair" x1="40" y1="88" x2="600" y2="88"/>
+
+  <!-- timeline spine -->
+  <path class="tl" d="M40 115 V319" pathLength="1"/>
+
+  <!-- entry 1 (newest, live) -->
+  <g class="ent e1">
+    <circle class="ring" cx="40" cy="115" r="5"/>
+    <circle class="live" cx="40" cy="115" r="5"/>
+    <rect class="lp" x="496" y="106" width="52" height="18" rx="9"/>
+    <text class="lt" x="522" y="119" text-anchor="middle">LIVE</text>
+    <text class="muted" x="600" y="119" text-anchor="end">2m ago</text>
+    <text class="prompt" x="62" y="140">Refactor the auth middleware</text>
+    <rect class="chip" x="62" y="148" width="66" height="22" rx="11"/>
+    <text class="chipt" x="95" y="163" text-anchor="middle">38 req</text>
+    <rect class="chip" x="136" y="148" width="64" height="22" rx="11"/>
+    <text class="costt k0" x="168" y="163" text-anchor="middle">$0.00</text>
+    <text class="costt k1" x="168" y="163" text-anchor="middle">$1.10</text>
+    <text class="costt k2" x="168" y="163" text-anchor="middle">$2.37</text>
+    <text class="costt k3" x="168" y="163" text-anchor="middle">$3.26</text>
+    <text class="costt k4" x="168" y="163" text-anchor="middle">$4.12</text>
+    <rect class="chip" x="208" y="148" width="74" height="22" rx="11"/>
+    <text class="chipt" x="245" y="163" text-anchor="middle">1m 19s</text>
+    <rect class="chip" x="290" y="148" width="168" height="22" rx="11"/>
+    <circle class="m-opus" cx="302" cy="159" r="4"/>
+    <text class="chipt" x="314" y="163">claude-opus-5-5</text>
+  </g>
+
+  <!-- entry 2 -->
+  <g class="ent e2">
+    <circle class="dot" cx="40" cy="183" r="5"/>
+    <text class="muted" x="600" y="187" text-anchor="end">14m ago</text>
+    <text class="prompt" x="62" y="208">Add charts API for scatter</text>
+    <rect class="chip" x="62" y="216" width="66" height="22" rx="11"/>
+    <text class="chipt" x="95" y="231" text-anchor="middle">24 req</text>
+    <rect class="chip" x="136" y="216" width="64" height="22" rx="11"/>
+    <text class="costt" x="168" y="231" text-anchor="middle">$2.64</text>
+    <rect class="chip" x="208" y="216" width="74" height="22" rx="11"/>
+    <text class="chipt" x="245" y="231" text-anchor="middle">52s</text>
+    <rect class="chip" x="290" y="216" width="168" height="22" rx="11"/>
+    <circle class="m-sonnet" cx="302" cy="227" r="4"/>
+    <text class="chipt" x="314" y="231">claude-sonnet-5-5</text>
+  </g>
+
+  <!-- entry 3 -->
+  <g class="ent e3">
+    <circle class="dot" cx="40" cy="251" r="5"/>
+    <text class="muted" x="600" y="255" text-anchor="end">1h ago</text>
+    <text class="prompt" x="62" y="276">Write the README</text>
+    <rect class="chip" x="62" y="284" width="66" height="22" rx="11"/>
+    <text class="chipt" x="95" y="299" text-anchor="middle">19 req</text>
+    <rect class="chip" x="136" y="284" width="64" height="22" rx="11"/>
+    <text class="costt" x="168" y="299" text-anchor="middle">$2.10</text>
+    <rect class="chip" x="208" y="284" width="74" height="22" rx="11"/>
+    <text class="chipt" x="245" y="299" text-anchor="middle">44s</text>
+    <rect class="chip" x="290" y="284" width="168" height="22" rx="11"/>
+    <circle class="m-sonnet" cx="302" cy="295" r="4"/>
+    <text class="chipt" x="314" y="299">claude-sonnet-5-5</text>
+  </g>
+
+  <!-- entry 4 -->
+  <g class="ent e4">
+    <circle class="dot" cx="40" cy="319" r="5"/>
+    <text class="muted" x="600" y="323" text-anchor="end">3h ago</text>
+    <text class="prompt" x="62" y="344">Fix flaky test in verify.js</text>
+    <rect class="chip" x="62" y="352" width="66" height="22" rx="11"/>
+    <text class="chipt" x="95" y="367" text-anchor="middle">12 req</text>
+    <rect class="chip" x="136" y="352" width="64" height="22" rx="11"/>
+    <text class="costt" x="168" y="367" text-anchor="middle">$1.92</text>
+    <rect class="chip" x="208" y="352" width="74" height="22" rx="11"/>
+    <text class="chipt" x="245" y="367" text-anchor="middle">33s</text>
+    <rect class="chip" x="290" y="352" width="168" height="22" rx="11"/>
+    <circle class="m-opus" cx="302" cy="363" r="4"/>
+    <text class="chipt" x="314" y="367">claude-opus-5-5</text>
+  </g>
+</svg>

@@ -1,0 +1,25 @@
+# Private runtime data — never commit (contains your prompt text)
+data/
+logs/
+state/
+.demo/
+*.log
+store.json
+store.json.tmp
+*.corrupt
+
+# Internal team notes
+.team/
+
+# Local test output
+test/shots/
+test/*.png
+test/VERIFY_REPORT.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+node_modules/

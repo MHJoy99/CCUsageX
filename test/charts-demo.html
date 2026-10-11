@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Charts demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root, :root[data-theme="light"] {
+    --page:#f4f4f1; --surface-1:#fcfcfb; --surface-2:#f0f0ec;
+    --text-primary:#1c1c1a; --text-secondary:#55554f; --text-muted:#74746c;
+    --grid:#ecece7; --axis:#cfcfc7; --border:#dcdcd4; --accent:#2a78d6;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
+    --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
+    --series-5:#e87ba4; --series-6:#008300; --series-7:#6250d6; --series-8:#e34948;
+  }
+  :root[data-theme="dark"] {
+    --page:#0f0f0e; --surface-1:#1a1a19; --surface-2:#252523;
+    --text-primary:#ecece8; --text-secondary:#a9a9a2; --text-muted:#85857e;
+    --grid:#2a2a28; --axis:#44443f; --border:#363633; --accent:#3987e5;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+    --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]):not([data-theme="dark"]) {
+      --page:#0f0f0e; --surface-1:#1a1a19; --surface-2:#252523;
+      --text-primary:#ecece8; --text-secondary:#a9a9a2; --text-muted:#85857e;
+      --grid:#2a2a28; --axis:#44443f; --border:#363633; --accent:#3987e5;
+      --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+      --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px; background:var(--page); color:var(--text-primary);
+         font:14px/1.4 "Segoe UI", system-ui, sans-serif; }
+  h1 { font-size:16px; margin:0 0 14px; font-weight:600; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+  .card { background:var(--surface-1); border:1px solid var(--border); border-radius:12px; padding:14px 16px; min-width:0; }
+  .card.wide { grid-column: 1 / -1; }
+  .card h2 { font-size:12px; font-weight:500; color:var(--text-secondary); margin:0 0 10px; }
+  .tile { display:flex; gap:16px; align-items:center; }
+  .tile .v { font-size:26px; font-weight:600; }
+  .tile .spark { width:140px; height:36px; }
+  .narrow { width:300px; }
+</style>
+</head>
+<body>
+<h1>Charts demo</h1>
+<div class="grid" id="grid"></div>
+<script>window.onerror=function(m,s,l,c){var p=document.createElement("pre");p.id="errtrap";p.style.cssText="color:#f66;white-space:pre-wrap";p.textContent="ERR "+m+" @"+l+":"+c;document.body.insertBefore(p,document.body.firstChild)}</script>
+<script src="../public/charts.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  if (q.has('noanim')) Charts.animations = false;
+  if (q.get('theme')) document.documentElement.setAttribute('data-theme', q.get('theme'));
+
+  function compact(n) {
+    var a = Math.abs(n);
+    if (a >= 1e9) return (n / 1e9).toFixed(a >= 1e10 ? 0 : 1).replace(/\.0$/, '') + 'B';
+    if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M';
+    if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'K';
+    return String(Math.round(n * 100) / 100);
+  }
+  function usd(n) { return '$' + (n >= 100 ? n.toFixed(0) : n.toFixed(2)); }
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function dayFmt(t) { var d = new Date(t); return MON[d.getMonth()] + ' ' + d.getDate(); }
+  function hourFmt(t) { var d = new Date(t); return String(d.getHours()).padStart(2, '0') + ':00'; }
+
+  var seed = 7;
+  function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+
+  var S = [
+    { key: 'cacheRead', name: 'Cache read', color: Charts.seriesColor(1) },
+    { key: 'cacheWrite', name: 'Cache write', color: Charts.seriesColor(4) },
+    { key: 'input', name: 'Input', color: Charts.seriesColor(2) },
+    { key: 'output', name: 'Output', color: Charts.seriesColor(3) }
+  ];
+  function bucket(t, scale) {
+    var cr = scale * (0.2 + rnd());
+    return { t: t, cacheRead: Math.round(cr * 7e6 / 1.2), cacheWrite: Math.round(cr * 7e6 / 1.2 * 0.045 * (0.5 + rnd())),
+             input: Math.round(rnd() * 4000 * scale), output: Math.round(cr * 7e6 / 1.2 * 0.006 * (0.5 + rnd())) };
+  }
+  var day0 = new Date(2026, 9, 11).getTime() - 29 * 864e5;
+  var daily = []; for (var i = 0; i < 30; i++) daily.push(bucket(day0 + i * 864e5, i % 7 === 5 ? 0.15 : 1));
+  var h0 = new Date(2026, 9, 11, 0).getTime();
+  var hourly = []; for (i = 0; i < 24; i++) hourly.push(bucket(h0 + i * 36e5, i < 8 ? 0.02 : (i > 20 ? 0.3 : 1)));
+  var one = [bucket(h0 + 14 * 36e5, 0.6)];
+  var tiny = [{ t: 1, cacheRead: 12, cacheWrite: 1, input: 2, output: 0 }, { t: 2, cacheRead: 3, cacheWrite: 0, input: 1, output: 1 }];
+  var zeros = [{ t: h0, cacheRead: 0, cacheWrite: 0, input: 0, output: 0 }];
+
+  var grid = document.getElementById('grid');
+  function card(title, cls, style) {
+    var c = document.createElement('div'); c.className = 'card ' + (cls || '');
+    var h = document.createElement('h2'); h.textContent = title; c.appendChild(h);
+    var d = document.createElement('div'); if (style) d.style.cssText = style; c.appendChild(d);
+    grid.appendChild(c); return d;
+  }
+
+  Charts.stackedBars(card('Tokens per day (30 daily buckets, cache read ~95%)', 'wide'), daily, S,
+    { format: compact, xFormat: dayFmt, height: 280 });
+  Charts.stackedBars(card('Tokens per hour (24 hourly buckets)'), hourly, S, { format: compact, xFormat: hourFmt, height: 240 });
+  Charts.stackedBars(card('Single bucket'), one, S, { format: compact, xFormat: hourFmt, height: 240 });
+  Charts.stackedBars(card('Tiny values (2 buckets)'), tiny, S, { format: compact, xFormat: function (t) { return 'Bucket ' + t; }, height: 200 });
+  Charts.stackedBars(card('Empty data'), [], S, { format: compact, xFormat: hourFmt, height: 200 });
+  Charts.stackedBars(card('All zeros'), zeros, S, { format: compact, xFormat: hourFmt, height: 160 });
+  Charts.stackedBars(card('Cost per day (single series, $)'), daily.map(function (p) { return { t: p.t, cost: p.cacheRead / 7e6 * 3.1 + 0.4 }; }),
+    [{ key: 'cost', name: 'API-equivalent cost', color: Charts.seriesColor(1) }], { format: usd, xFormat: dayFmt, height: 220 });
+
+  var model = [
+    { name: 'claude-opus-5-5', value: 6300000, color: Charts.seriesColor(1) },
+    { name: 'claude-sonnet-5-5', value: 1450000, color: Charts.seriesColor(2) },
+    { name: 'claude-haiku-5-5', value: 210000, color: Charts.seriesColor(3) },
+    { name: 'claude-fable-5-1', value: 38000, color: Charts.seriesColor(4) },
+    { name: 'claude-tiny-model', value: 900, color: Charts.seriesColor(5) }
+  ];
+  Charts.donut(card('Tokens by model (donut, 5 items, one <1%)'), model, { format: compact, centerValue: '8.0M', centerLabel: 'tokens' });
+  var nine = [];
+  var nm = ['claude-opus-5-5','claude-sonnet-5-5','claude-haiku-5-5','claude-fable-5-1','a-very-long-project-name-that-wraps/and/continues/forever','C:\\Users\\dev\\webapp','<img src=x onerror=alert(1)> &amp; <b>bold</b>','ccusagex','Other'];
+  var vv = [5200000, 1800000, 900000, 400000, 250000, 120000, 40000, 9000, 1200];
+  for (i = 0; i < 9; i++) nine.push({ name: nm[i], value: vv[i], color: Charts.seriesColor(i + 1 > 8 ? 8 : i + 1) });
+  Charts.donut(card('9 donut items, narrow container', '', 'width:300px'), nine, { format: compact });
+  Charts.donut(card('Single slice (100%)'), [{ name: 'claude-opus-5-5', value: 123456, color: Charts.seriesColor(1) }], { format: compact, centerValue: usd(412.5), centerLabel: 'API-equivalent' });
+  Charts.donut(card('Empty donut'), [], { format: compact });
+
+  Charts.hbars(card('Cost by project (hbars with sub)'), [
+    { name: 'ccusagex', value: 182.4, sub: '1,204 requests' },
+    { name: 'marketing-agent', value: 96.1, sub: '622 requests' },
+    { name: 'a-very-long-project-name-that-wraps-around-the-label-column-forever', value: 40.7, sub: '211 requests' },
+    { name: 'webapp', value: 12.9, sub: '40 requests' },
+    { name: 'tiny', value: 0.04, sub: '1 request' },
+    { name: 'zero', value: 0, sub: '0 requests' }
+  ], { format: usd });
+  Charts.hbars(card('Tool calls (hbars, no sub, per-item colors)'), [
+    { name: 'Bash', value: 1840, color: Charts.seriesColor(1) },
+    { name: 'Read', value: 1320, color: Charts.seriesColor(1) },
+    { name: 'Edit', value: 760, color: Charts.seriesColor(1) },
+    { name: 'Grep', value: 410, color: Charts.seriesColor(1) },
+    { name: 'mcp__claude_ai_Claude_Docs__batch', value: 12, color: Charts.seriesColor(1) }
+  ], { format: compact });
+  Charts.hbars(card('Empty hbars'), [], { format: compact });
+
+  function tile(label, value, vals, color) {
+    var d = card(label);
+    d.className = 'tile';
+    var v = document.createElement('div'); v.className = 'v'; v.textContent = value;
+    var s = document.createElement('div'); s.className = 'spark';
+    d.appendChild(v); d.appendChild(s);
+    Charts.sparkline(s, vals, { color: color, format: compact });
+  }
+  var sv = []; for (i = 0; i < 12; i++) sv.push(Math.round(1e5 + rnd() * 9e5));
+  tile('Tokens, 12 points', '7.9M', sv);
+  tile('Flat line', '5', [5, 5, 5, 5, 5, 5]);
+  tile('Single value', '42', [42], 'var(--series-2)');
+  tile('Empty sparkline', '-', []);
+
+  var p2start = grid.children.length;
+  // ---------------------------------------------------------------- phase 2: ranked columns / stacked columns / scatter
+  var MC = { opus: Charts.seriesColor(1), sonnet: Charts.seriesColor(2), haiku: Charts.seriesColor(3), fable: Charts.seriesColor(4) };
+  Charts.columns(card('Output speed, tokens/s (4 models)'), [
+    { name: 'claude-haiku-5-5', value: 148, color: MC.haiku, sub: 'median of 212 requests' },
+    { name: 'claude-sonnet-5-5', value: 74, color: MC.sonnet, sub: 'median of 640 requests' },
+    { name: 'claude-fable-5-1', value: 57, color: MC.fable, sub: 'median of 31 requests' },
+    { name: 'claude-opus-5-5', value: 38, color: MC.opus, sub: 'median of 1,204 requests' }
+  ], { format: function (n) { return Math.round(n) + ''; }, height: 300, valueName: 'Tokens/s' });
+  Charts.columns(card('Speed, 3 models, light values'), [
+    { name: 'claude-sonnet-5-5', value: 74, color: MC.sonnet },
+    { name: 'claude-opus-5-5', value: 38, color: MC.opus },
+    { name: 'claude-haiku-5-5', value: 3, color: MC.haiku }
+  ], { format: function (n) { return Math.round(n) + ''; }, height: 300 });
+  var tools20 = ['Bash','Read','Edit','Grep','Write','Glob','Task','TodoWrite','WebFetch','WebSearch','NotebookEdit','mcp__claude_ai_Claude_Docs__batch','mcp__claude_ai_Gmail__search','ExitPlanMode','KillShell','BashOutput','SlashCommand','Skill','mcp__ide__getDiagnostics','LS'];
+  Charts.columns(card('Tool calls (20 bars: only the top 3 labelled)', 'wide'),
+    tools20.map(function (nme, i) { return { name: nme, value: Math.round(2400 / Math.pow(1.38, i)) + (i % 3), color: Charts.seriesColor(1), sub: 'last 24 h' }; }),
+    { format: compact, height: 320 });
+  var PS = [
+    { key: 'output', name: 'Output', color: Charts.seriesColor(3) },
+    { key: 'thinking', name: 'Thinking', color: Charts.seriesColor(7) },
+    { key: 'cacheWrite', name: 'Cache write', color: Charts.seriesColor(4) },
+    { key: 'cacheRead', name: 'Cache read', color: Charts.seriesColor(1) },
+    { key: 'input', name: 'Input', color: Charts.seriesColor(2) }
+  ];
+  var pnames = ['Refactor the auth middleware','Fix flaky test in verify.js','Add charts API for scatter','Why is the scan slow?','Explain store.json layout','Write the README','Implement pricing lookup','Review server.js','Dark mode toggle','Debug SSE reconnect','Rename config keys','Summarise yesterday'];
+  var pitems = pnames.map(function (nme, i) {
+    var k = Math.pow(1.3, 11 - i) * (0.6 + rnd() * 0.8);
+    return { name: nme, sub: (2 + Math.round(rnd() * 30)) + ' requests', parts: {
+      output: 0.04 * k, thinking: 0.03 * k * rnd() * 2, cacheWrite: 0.11 * k * (0.5 + rnd()), cacheRead: 0.08 * k * (0.5 + rnd()), input: 0.003 * k } };
+  });
+  Charts.stackedColumns(card('API-equivalent cost per prompt (12 prompts, stacked by token type)', 'wide'), pitems, PS,
+    { format: usd, height: 340 });
+  Charts.stackedColumns(card('Cost per prompt, 3 prompts'), pitems.slice(0, 3), PS, { format: usd, height: 280 });
+  Charts.stackedColumns(card('Empty stackedColumns'), [], PS, { format: usd, height: 200 });
+
+  var sp = [];
+  var pm = ['opus', 'sonnet', 'haiku', 'fable'];
+  for (i = 0; i < 20; i++) {
+    var model = pm[i % 4];
+    var cost = Math.exp(Math.log(0.01) + rnd() * (Math.log(5) - Math.log(0.01)));
+    var out = Math.round(Math.max(200, Math.min(60000, 200 * Math.pow(cost / 0.01, 0.62) * (0.5 + rnd() * 1.6))));
+    sp.push({ id: 'p' + i, name: (pnames[i % 12] + (i >= 12 ? ' #2' : '')), x: cost, y: out, color: MC[model], r: 5 + (i % 3), sub: model });
+  }
+  Charts.scatter(card('Output tokens vs cost per prompt (log x, quadrant, Pareto frontier)', 'wide'), sp, {
+    xLog: true, xLabel: 'API-equivalent cost per prompt (USD, log scale)', yLabel: 'Output tokens',
+    xFormat: function (v) { return '$' + (v < 0.01 ? v.toFixed(3) : v < 0.1 ? v.toFixed(2) : v); }, yFormat: compact, height: 440,
+    quadrant: { x: 0.3, y: 2500, label: 'Most efficient quadrant' }, frontier: true, labels: 'auto',
+    onClick: function (p) { window.__clicked = p.name; }
+  });
+  Charts.scatter(card('Scatter, linear axes, 3 points'), [
+    { name: 'A', x: 10, y: 5, color: Charts.seriesColor(1) }, { name: 'B', x: 40, y: 22, color: Charts.seriesColor(2) }, { name: 'C', x: 75, y: 18, color: Charts.seriesColor(3), r: 8 }
+  ], { xLabel: 'Latency (s)', yLabel: 'Score', height: 300, frontier: true });
+  Charts.scatter(card('Empty scatter'), [], { height: 200 });
+
+  // count-up tile + reveal
+  (function () {
+    var d = card('countUp tile'); d.className = 'tile';
+    var v = document.createElement('div'); v.className = 'v'; d.appendChild(v);
+    Charts.countUp(v, 7912345, compact);
+    window.__cu = v;
+  })();
+  if (q.has("p2")) { while (grid.children.length > 0 && p2start-- > 0) grid.removeChild(grid.firstChild); }
+  grid.querySelectorAll('.card').forEach(function (c) { c.setAttribute('data-reveal', ''); });
+  Charts.reveal(grid);
+
+  // simulate the 10 s refresh: re-render everything; must not leak observers or flicker
+  window.__rerender = function () { grid.innerHTML = ''; };
+})();
+</script>
+</body>
+</html>
