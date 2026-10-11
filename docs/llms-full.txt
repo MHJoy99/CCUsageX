@@ -23,12 +23,12 @@ For each prompt, request, model, project and session it shows: input tokens, out
 - Then open http://127.0.0.1:3020 (default port 3020; change with --port <n> or the PORT environment variable).
 - Windows launchers: Open-CCUsageX.cmd and Close-CCUsageX.cmd.
 
-## Plan usage limits (optional)
+## Plan usage limits
 
-For Claude Pro and Max subscribers, CCUsageX can show the 5-hour session and 7-day weekly usage percentages, reset countdowns and a burn-rate projection on the Overview and Live views and in the header. The data comes from Claude Code's documented status line JSON (rate_limits). CCUsageX uses no login, makes no API calls and reads nothing from credentials.
-- Setup: npm run statusline:install in a CCUsageX checkout. It backs up settings.json first and chains any status line you already have. npm run statusline:uninstall reverses it.
-- The data appears after Claude's next reply.
-- Claude Code does not expose Opus- or Sonnet-specific limits, so CCUsageX does not show them.
+For Claude Pro and Max subscribers, CCUsageX shows the 5-hour session and 7-day weekly limits, with reset times, a pace projection, and per-model weekly limits when Claude Code reports them. The numbers come from Claude Code's documented /usage report (Agent SDK usage_report). The local server runs it automatically every 2 minutes while the dashboard is open (every 15 minutes otherwise), and a refresh button runs it on demand. It costs no model tokens, writes no transcript, needs no login, makes no direct API calls and never reads credentials.
+- Optional status line: npm run statusline:install in a CCUsageX checkout gives instant updates in terminal claude sessions. It backs up settings.json first and chains any status line you already have. npm run statusline:uninstall reverses it.
+- Per-model weekly limits appear only when Claude Code reports them.
+- The probe finds claude on your PATH, or the binary bundled with the VS Code, Cursor or Windsurf extension. Set CCU_CLAUDE_BIN to point at a specific binary, or CCU_LIMITS_PROBE=0 to turn the probe off.
 
 ## How it works
 
@@ -65,7 +65,7 @@ For some streamed requests, mostly from subagents, Claude Code logs only the usa
 ## How it compares
 
 - ccusage (https://github.com/ryoppippi/ccusage): excellent CLI reports (daily, monthly, session, 5-hour blocks), supports several coding tools. CCUsageX is a web dashboard focused on per-prompt cost, prompt text, cache savings, subagent attribution and persistent history.
-- Claude-Code-Usage-Monitor (https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor): live terminal monitor of plan limits and burn rate. CCUsageX also shows plan limits (Pro and Max, from the status line), but its focus is per-prompt cost and history.
+- Claude-Code-Usage-Monitor (https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor): live terminal monitor of plan limits and burn rate. CCUsageX also shows plan limits (Pro and Max, from Claude Code's /usage report), but its focus is per-prompt cost and history.
 - Sniffly (https://github.com/chiphuyen/sniffly): local web dashboard for Claude Code usage stats and message history; last updated in 2025.
 Comparison is based on public READMEs as of October 2026 and may change.
 
@@ -90,10 +90,10 @@ Q: Why are subagent output tokens under-counted?
 A: For some streamed requests, mostly from subagents, Claude Code logs only the usage snapshot taken when the stream started, when output_tokens is still a small placeholder, instead of the final total. CCUsageX keeps the highest value it sees and flags those requests as incomplete, so output and thinking tokens (and their cost) can be lower than the real figure. Input and cache counts are reported at stream start and are not affected.
 
 Q: Does CCUsageX work with a Claude Pro or Max subscription?
-A: Yes. Claude Code writes the same logs on every plan, so the dashboard works the same way. The cost shown is API-equivalent, not your bill. CCUsageX reads your plan limits only through the optional status line described under "Plan usage limits (optional)"; otherwise it is a usage and cost analyzer, not a limit monitor.
+A: Yes. Claude Code writes the same logs on every plan, so the dashboard works the same way. The cost shown is API-equivalent, not your bill. CCUsageX reads your plan limits only from Claude Code's /usage report, described under "Plan usage limits"; otherwise it is a usage and cost analyzer, not a limit monitor.
 
 Q: Can CCUsageX show my Claude plan usage limits?
-A: Yes, for Claude Pro and Max subscriptions. Claude Code passes your 5-hour session and 7-day weekly usage percentages, with their reset times, to its status line. CCUsageX ships an optional status line script that saves those numbers locally and shows them on the dashboard, with reset countdowns and a burn-rate projection. Setup is npm run statusline:install in a CCUsageX checkout; npm run statusline:uninstall reverses it. The installer backs up your settings.json first and chains any status line you already have. There is no login, no API call and nothing is read from credentials. Claude Code does not expose Opus- or Sonnet-specific limits, so those are not shown. The numbers appear after Claude's next reply.
+A: Yes, for Claude Pro and Max subscriptions. CCUsageX reads Claude Code's documented /usage report, which shows your 5-hour session and 7-day weekly limits with their reset times, plus per-model weekly limits when Claude Code reports them. It refreshes automatically every 2 minutes while the dashboard is open, and a refresh button runs it on demand. It uses no login, no model tokens, writes no transcript, makes no direct API calls and never reads credentials. An optional status line (npm run statusline:install) gives instant updates in terminal sessions; npm run statusline:uninstall reverses it.
 
 Q: Can I change the prices?
 A: Yes. Edit pricing.models in config.json: input, output and cacheRead prices in USD per million tokens, plus cache-write multipliers (1.25 for the 5-minute cache, 2 for the 1-hour cache) and optional fast-mode and long-context tiers. Restart the server to apply changes. The defaults follow Anthropic's published API list prices, last checked 2026-10-06.
