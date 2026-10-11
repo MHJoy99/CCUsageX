@@ -86,8 +86,8 @@ line exactly and removes the saved key. `--dry-run` shows the change without wri
 
 ## I use the VS Code extension. Why do the limits not update?
 
-The numbers come from Claude Code's status line, and only the terminal `claude` app runs status lines. The VS Code
-panel does not. Send a message in terminal `claude` and the card updates within a second. Values older than 15 minutes
+The numbers come from Claude Code's status line, which the terminal `claude` app runs. In testing, the VS Code panel
+(and the headless mode it uses) never reported limits. Send a message in terminal `claude` and the card updates within a second. Values older than 15 minutes
 are marked stale, with the time of the last update.
 
 ## Why are there no Opus or Sonnet limits?

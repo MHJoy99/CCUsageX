@@ -132,8 +132,8 @@ Things to know:
   no limit data.
 - **Appears after the first reply.** Claude Code sends the numbers with its first response in a session, so the
   dashboard shows the setup state until you send a message.
-- **Terminal app, not the VS Code panel.** Status lines run in the terminal `claude` app. The VS Code panel does not
-  run them, so if you work mostly in VS Code, send a message in terminal `claude` now and then to refresh the numbers.
+- **Terminal app, not the VS Code panel.** Status lines run in the terminal `claude` app. In testing, the VS Code panel
+  did not report limits, so if you work mostly in VS Code, send a message in terminal `claude` now and then to refresh the numbers.
   The card marks values older than 15 minutes as stale and shows when they were last updated.
 - **Overall windows only.** Claude Code does not report separate Opus or Sonnet limits, so CCUsageX does not show them.
 - **Local data only.** Snapshots are written to `~/.ccusagex/limits/` (or `$CCU_DATA_DIR/limits/`). Nothing is sent
