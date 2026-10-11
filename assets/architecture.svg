@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 560" width="1280" height="560" role="img" aria-labelledby="t d">
+<title id="t">How CCUsageX works</title>
+<desc id="d">Claude Code, in the CLI or VS Code, writes transcript files to ~/.claude/projects. The CCUsageX server reads them read-only, scans every 5 seconds, dedupes by message and request id, attributes requests to your prompt and prices them. Results are kept in a local store at ~/.ccusagex/store.json and served as a dashboard on 127.0.0.1:3020. Everything stays on your machine; nothing is sent to any cloud.</desc>
+<style>
+:root{--bg:#ffffff;--zone:rgba(91,61,245,.045);--card:#f6f8fa;--line:#d0d7de;--t:#1f2328;--t2:#59636e;--t3:#818b98;--acc:#5b3df5;--soft:rgba(91,61,245,.11);--flow:#5b3df5;--bad:#d03b3b;--good:#0ca30c;--bd:#8a7bef}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--zone:rgba(144,133,233,.07);--card:#161b22;--line:#30363d;--t:#e6edf3;--t2:#9198a1;--t3:#656c76;--acc:#9085e9;--soft:rgba(144,133,233,.16);--flow:#b3a8ff;--bad:#e66767;--good:#2fc92f;--bd:#7467d6}}
+text{font-family:-apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:var(--t)}
+.ttl,.ttlHi,.h1{font-family:Georgia,'Iowan Old Style','Palatino Linotype','Times New Roman',serif}
+.mono{font-family:ui-monospace,'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace}
+.h1{font-size:28px;font-weight:700}
+.h2{font-size:15px;fill:var(--t2)}
+.bg{fill:var(--bg);stroke:var(--line)}
+.zone{fill:var(--zone);stroke:var(--bd);stroke-width:1.6;stroke-dasharray:7 6}
+.zlabelbg{fill:var(--bg);stroke:var(--bd);stroke-width:1.4}
+.zlabel{font-size:14px;font-weight:700;letter-spacing:.06em;fill:var(--acc)}
+.card{fill:var(--card);stroke:var(--line);stroke-width:1.2}
+.srv{fill:url(#grad);stroke:#7b61ff;stroke-width:1.2}
+.tile{fill:var(--soft)}.tileHi{fill:rgba(255,255,255,.16)}
+.ic{fill:none;stroke:var(--acc);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.icHi{fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.ttl{font-size:20px;font-weight:700}.ttlHi{font-size:20px;font-weight:700;fill:#fff}
+.sub{font-size:14px;fill:var(--t2)}.subHi{font-size:14px;fill:rgba(255,255,255,.78)}
+.box{fill:var(--bg);stroke:var(--line)}
+.m{font-size:13px;fill:var(--t)}.m2{font-size:13px;fill:var(--t2)}
+.chip{fill:rgba(255,255,255,.12);stroke:rgba(255,255,255,.3)}
+.chipHi{fill:rgba(255,255,255,.4)}
+.chipT{font-size:14px;font-weight:600;fill:#fff}
+.num{fill:var(--acc)}.numT{font-size:13px;font-weight:700;fill:var(--bg)}
+.numHi{fill:#fff}.numHiT{font-size:13px;font-weight:700;fill:#3a1d9e}
+.flow{fill:none;stroke:var(--acc);stroke-width:2.4;stroke-linecap:round;stroke-dasharray:5 6;animation:march 1s linear infinite}
+@keyframes march{to{stroke-dashoffset:-11}}
+.head{fill:var(--acc)}
+.lbl{font-size:13px;font-weight:600;fill:var(--t2)}
+.cap{font-size:14px;fill:var(--t2)}
+.no{fill:none;stroke:var(--t3);stroke-width:1.8;stroke-dasharray:4 5;stroke-linecap:round}
+.cloud{fill:none;stroke:var(--t3);stroke-width:2.2;stroke-linejoin:round}
+.xbg{fill:var(--bg);stroke:var(--bad);stroke-width:2}
+.x{stroke:var(--bad);stroke-width:2.6;stroke-linecap:round}
+.nolbl{font-size:15px;font-weight:600;fill:var(--t2)}
+.live{fill:var(--good)}
+.lg{font-size:13px;fill:var(--t2)}
+.halo0{stop-color:var(--flow);stop-opacity:.7}.halo1{stop-color:var(--flow);stop-opacity:0}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b3df5"/><stop offset=".55" stop-color="#3a1d9e"/><stop offset="1" stop-color="#1b0b4a"/></linearGradient>
+<radialGradient id="halo"><stop class="halo0" offset="0"/><stop class="halo1" offset="1"/></radialGradient>
+<g id="pk"><circle r="14" fill="url(#halo)"/><circle r="4.6" fill="var(--flow)"/><circle r="1.7" fill="#fff"/></g>
+</defs>
+<rect class="bg" x=".6" y=".6" width="1278.8" height="558.8" rx="18"/>
+<text class="h1" x="44" y="50">How it works</text>
+<text class="h2" x="44" y="76">Read-only · local · zero dependencies</text>
+
+<path class="cloud" d="M614 64 H668 A12 12 0 0 0 670 40.2 A18 18 0 0 0 636 34 A14 14 0 0 0 614 64 Z"/>
+<text class="nolbl" x="700" y="55">No cloud. No telemetry. No account.</text>
+<path class="no" d="M641 146 V66"/>
+<rect class="zone" x="20" y="100" width="1240" height="440" rx="22"/>
+<circle class="xbg" cx="641" cy="100" r="12"/><path class="x" d="M636 95 L646 105 M646 95 L636 105"/>
+<rect class="zlabelbg" x="44" y="86" width="372" height="28" rx="14"/>
+<g class="ic" style="stroke-width:2"><path d="M63 99 v-3 a4 4 0 0 1 8 0 v3"/><rect x="61" y="99" width="12" height="9" rx="2"/></g>
+<text class="zlabel" x="86" y="105">YOUR MACHINE — NOTHING LEAVES IT</text>
+
+<g>
+<rect class="card" x="44" y="150" width="184" height="200" rx="16"/>
+<rect class="tile" x="60" y="166" width="44" height="44" rx="12"/><path class="ic" transform="translate(44,150)" d="M29 31 L36 38 L29 45 M39 46 H48"/>
+<circle class="num" cx="204" cy="188" r="12"/><text class="numT" x="204" y="193" text-anchor="middle">1</text><text class="ttl" x="60" y="240">Claude Code</text><text class="sub" x="60" y="261">CLI · VS Code</text>
+<rect class="box" x="60" y="282" width="152" height="52" rx="9"/>
+<text class="mono m" x="136" y="313" text-anchor="middle">&gt; your prompt</text>
+</g>
+<g>
+<rect class="card" x="284" y="150" width="184" height="200" rx="16"/>
+<rect class="tile" x="300" y="166" width="44" height="44" rx="12"/><path class="ic" transform="translate(284,150)" d="M29 26 H41 L47 32 V50 H29 Z M41 26 V32 H47 M33 40 H43 M33 45 H43"/>
+<circle class="num" cx="444" cy="188" r="12"/><text class="numT" x="444" y="193" text-anchor="middle">2</text><text class="ttl" x="300" y="240">Transcripts</text><text class="sub" x="300" y="261">JSONL, one per session</text>
+<rect class="box" x="300" y="282" width="152" height="52" rx="9"/>
+<text class="mono m" x="376" y="304" text-anchor="middle">~/.claude/projects/</text>
+<text class="mono m2" x="376" y="323" text-anchor="middle">**/*.jsonl</text>
+</g>
+<g>
+<rect class="srv" x="524" y="150" width="232" height="200" rx="16"/>
+<rect class="tileHi" x="540" y="166" width="44" height="44" rx="12"/><g class="icHi" transform="translate(524,150)"><rect x="28" y="27" width="20" height="9" rx="2.5"/><rect x="28" y="40" width="20" height="9" rx="2.5"/><path d="M33 31.5 h.01 M33 44.5 h.01"/></g>
+<circle class="numHi" cx="732" cy="188" r="12"/><text class="numHiT" x="732" y="193" text-anchor="middle">3</text><text class="ttlHi" x="540" y="240">CCUsageX server</text><text class="subHi" x="540" y="261">node server.js</text>
+<g><rect class="chip" x="536" y="280" width="100" height="28" rx="14"/>
+<rect class="chipHi" x="536" y="280" width="100" height="28" rx="14" opacity="0"><animate attributeName="opacity" dur="3.6s" repeatCount="indefinite" values="0;0;.85;0;0;.85;0;0" keyTimes="0;0.04;0.07;0.1;0.54;0.57;0.6;1"/></rect>
+<text class="chipT" x="586" y="299" text-anchor="middle">scan</text></g>
+<g><rect class="chip" x="644" y="280" width="100" height="28" rx="14"/>
+<rect class="chipHi" x="644" y="280" width="100" height="28" rx="14" opacity="0"><animate attributeName="opacity" dur="3.6s" repeatCount="indefinite" values="0;0;.85;0;0;.85;0;0" keyTimes="0;0.11;0.14;0.17;0.61;0.64;0.67;1"/></rect>
+<text class="chipT" x="694" y="299" text-anchor="middle">dedupe</text></g>
+<g><rect class="chip" x="536" y="314" width="100" height="28" rx="14"/>
+<rect class="chipHi" x="536" y="314" width="100" height="28" rx="14" opacity="0"><animate attributeName="opacity" dur="3.6s" repeatCount="indefinite" values="0;0;.85;0;0;.85;0;0" keyTimes="0;0.18;0.21;0.24;0.68;0.71;0.74;1"/></rect>
+<text class="chipT" x="586" y="333" text-anchor="middle">attribute</text></g>
+<g><rect class="chip" x="644" y="314" width="100" height="28" rx="14"/>
+<rect class="chipHi" x="644" y="314" width="100" height="28" rx="14" opacity="0"><animate attributeName="opacity" dur="3.6s" repeatCount="indefinite" values="0;0;.85;0;0;.85;0;0" keyTimes="0;0.25;0.28;0.31;0.75;0.78;0.81;1"/></rect>
+<text class="chipT" x="694" y="333" text-anchor="middle">price</text></g>
+</g>
+<g>
+<rect class="card" x="812" y="150" width="184" height="200" rx="16"/>
+<rect class="tile" x="828" y="166" width="44" height="44" rx="12"/><g class="ic" transform="translate(812,150)"><path d="M28 31 V45 A10 4 0 0 0 48 45 V31 M28 38 A10 4 0 0 0 48 38"/><ellipse cx="38" cy="31" rx="10" ry="4"/></g>
+<circle class="num" cx="972" cy="188" r="12"/><text class="numT" x="972" y="193" text-anchor="middle">4</text><text class="ttl" x="828" y="240">Local store</text><text class="sub" x="828" y="261">Its own copy</text>
+<rect class="box" x="828" y="282" width="152" height="52" rx="9"/>
+<text class="mono m" x="904" y="304" text-anchor="middle">~/.ccusagex/</text>
+<text class="mono m2" x="904" y="323" text-anchor="middle">store.json</text>
+</g>
+<g>
+<rect class="card" x="1052" y="150" width="184" height="200" rx="16"/>
+<rect class="tile" x="1068" y="166" width="44" height="44" rx="12"/><g class="ic" transform="translate(1052,150)"><rect x="27" y="28" width="22" height="20" rx="3"/><path d="M27 34 H49 M32 44 V40 M38 44 V37 M44 44 V41"/></g>
+<circle class="num" cx="1212" cy="188" r="12"/><text class="numT" x="1212" y="193" text-anchor="middle">5</text><text class="ttl" x="1068" y="240">Dashboard</text><text class="sub" x="1068" y="261">Browser or Edge app</text>
+<rect class="box" x="1068" y="282" width="152" height="52" rx="9"/>
+<circle class="live" cx="1083" cy="303" r="4"><animate attributeName="opacity" values="1;.35;1" dur="2.4s" repeatCount="indefinite"/></circle>
+<text class="mono m" x="1094" y="308">127.0.0.1:3020</text>
+<text class="mono m2" x="1094" y="325">local only</text>
+</g>
+
+<path class="flow" d="M232 250 H271"/>
+<path class="head" d="M271 244 L280 250 L271 256 Z"/>
+<text class="lbl" x="256" y="236" text-anchor="middle">writes</text>
+<path class="flow" d="M472 250 H511"/>
+<path class="head" d="M511 244 L520 250 L511 256 Z"/>
+<text class="lbl" x="496" y="236" text-anchor="middle">reads</text>
+<path class="flow" d="M760 250 H799"/>
+<path class="head" d="M799 244 L808 250 L799 256 Z"/>
+<text class="lbl" x="784" y="236" text-anchor="middle">saves</text>
+<path class="flow" d="M1000 250 H1039"/>
+<path class="head" d="M1039 244 L1048 250 L1039 256 Z"/>
+<text class="lbl" x="1024" y="236" text-anchor="middle">serves</text>
+
+<text class="cap" x="136" y="382" text-anchor="middle">Logs every session</text>
+<text class="cap" x="136" y="402" text-anchor="middle">as you work, in the</text>
+<text class="cap" x="136" y="422" text-anchor="middle">terminal or VS Code.</text>
+<text class="cap" x="376" y="382" text-anchor="middle">Plain-text logs.</text>
+<text class="cap" x="376" y="402" text-anchor="middle">Opened read-only,</text>
+<text class="cap" x="376" y="422" text-anchor="middle">never modified.</text>
+<text class="cap" x="640" y="382" text-anchor="middle">Incremental scan every 5 s.</text>
+<text class="cap" x="640" y="402" text-anchor="middle">Requests tied to your prompt,</text>
+<text class="cap" x="640" y="422" text-anchor="middle">subagents included. Priced</text>
+<text class="cap" x="640" y="442" text-anchor="middle">from config.json.</text>
+<text class="cap" x="904" y="382" text-anchor="middle">Keeps history after</text>
+<text class="cap" x="904" y="402" text-anchor="middle">Claude Code’s 30-day</text>
+<text class="cap" x="904" y="422" text-anchor="middle">transcript cleanup.</text>
+<text class="cap" x="1144" y="382" text-anchor="middle">JSON API + web UI,</text>
+<text class="cap" x="1144" y="402" text-anchor="middle">bound to 127.0.0.1</text>
+<text class="cap" x="1144" y="422" text-anchor="middle">only.</text>
+
+<g class="pkt">
+<use href="#pk" opacity="0">
+<animateMotion dur="3.6s" begin="0.0s" repeatCount="indefinite" path="M232 250 H280" keyPoints="0;1;1" keyTimes="0;.25;1" calcMode="linear"/>
+<animate attributeName="opacity" dur="3.6s" begin="0.0s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1"/></use>
+<use href="#pk" opacity="0">
+<animateMotion dur="3.6s" begin="1.8s" repeatCount="indefinite" path="M232 250 H280" keyPoints="0;1;1" keyTimes="0;.25;1" calcMode="linear"/>
+<animate attributeName="opacity" dur="3.6s" begin="1.8s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1"/></use>
+<use href="#pk" opacity="0">
+<animateMotion dur="3.6s" begin="0.9s" repeatCount="indefinite" path="M472 250 H520" keyPoints="0;1;1" keyTimes="0;.25;1" calcMode="linear"/>
+<animate attributeName="opacity" dur="3.6s" begin="0.9s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1"/></use>
+<use href="#pk" opacity="0">
+<animateMotion dur="3.6s" begin="2.7s" repeatCount="indefinite" path="M472 250 H520" keyPoints="0;1;1" keyTimes="0;.25;1" calcMode="linear"/>
+<animate attributeName="opacity" dur="3.6s" begin="2.7s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1"/></use>
+<use href="#pk" opacity="0">
+<animateMotion dur="3.6s" begin="1.8s" repeatCount="indefinite" path="M760 250 H808" keyPoints="0;1;1" keyTimes="0;.25;1" calcMode="linear"/>
+<animate attributeName="opacity" dur="3.6s" begin="1.8s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1"/></use>
+<use href="#pk" opacity="0">
+<animateMotion dur="3.6s" begin="3.6s" repeatCount="indefinite" path="M760 250 H808" keyPoints="0;1;1" keyTimes="0;.25;1" calcMode="linear"/>
+<animate attributeName="opacity" dur="3.6s" begin="3.6s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1"/></use>
+<use href="#pk" opacity="0">
+<animateMotion dur="3.6s" begin="2.7s" repeatCount="indefinite" path="M1000 250 H1048" keyPoints="0;1;1" keyTimes="0;.25;1" calcMode="linear"/>
+<animate attributeName="opacity" dur="3.6s" begin="2.7s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1"/></use>
+<use href="#pk" opacity="0">
+<animateMotion dur="3.6s" begin="4.5s" repeatCount="indefinite" path="M1000 250 H1048" keyPoints="0;1;1" keyTimes="0;.25;1" calcMode="linear"/>
+<animate attributeName="opacity" dur="3.6s" begin="4.5s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1"/></use>
+</g>
+
+<path d="M44 506 H1236" stroke="var(--line)" stroke-width="1"/>
+<use href="#pk" x="56" y="523"/>
+<text class="lg" x="74" y="528">data packet</text>
+<path class="flow" d="M172 523 H208" style="stroke-width:2"/>
+<text class="lg" x="218" y="528">local hand-off: file, memory or loopback</text>
+<text class="lg" x="1236" y="528" text-anchor="end" style="font-weight:600;fill:var(--acc)">Costs are API-equivalent and computed locally.</text>
+</svg>

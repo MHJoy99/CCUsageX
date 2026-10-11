@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>CCUsageX: Claude Code Usage Dashboard & Cost Tracker</title>
+<meta name="description" content="Free, local Claude Code usage dashboard: token usage, cost per prompt, cache savings and subagents. Private, zero dependencies, open source.">
+<link rel="canonical" href="https://mhjoy99.github.io/CCUsageX/">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+<meta name="author" content="MHJoy99">
+<meta name="keywords" content="Claude Code usage dashboard, Claude Code token usage, Claude Code cost tracker, Claude Code analytics, ccusage alternative">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/svg+xml" href="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/logo-static.svg">
+<link rel="stylesheet" href="site.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CCUsageX">
+<meta property="og:title" content="CCUsageX: Claude Code Usage Dashboard &amp; Cost Tracker">
+<meta property="og:description" content="Free, local Claude Code usage dashboard: token usage, cost per prompt, cache savings and subagents. Private, zero dependencies, open source.">
+<meta property="og:url" content="https://mhjoy99.github.io/CCUsageX/">
+<meta property="og:image" content="https://mhjoy99.github.io/CCUsageX/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="CCUsageX dashboard showing Claude Code cost, tokens and cache savings">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CCUsageX: Claude Code Usage Dashboard &amp; Cost Tracker">
+<meta name="twitter:description" content="Free, local Claude Code usage dashboard: token usage, cost per prompt, cache savings and subagents. Private, zero dependencies, open source.">
+<meta name="twitter:image" content="https://mhjoy99.github.io/CCUsageX/og-image.png">
+<meta name="twitter:image:alt" content="CCUsageX dashboard showing Claude Code cost, tokens and cache savings">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "@id": "https://mhjoy99.github.io/CCUsageX/#app",
+  "name": "CCUsageX",
+  "url": "https://mhjoy99.github.io/CCUsageX/",
+  "description": "Free, local Claude Code usage dashboard: token usage, cost per prompt, cache savings and subagents. Private, zero dependencies, open source.",
+  "applicationCategory": "DeveloperApplication",
+  "applicationSubCategory": "Claude Code usage dashboard",
+  "operatingSystem": "Windows, macOS, Linux",
+  "softwareRequirements": "Node.js 18+",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "codeRepository": "https://github.com/MHJoy99/CCUsageX",
+  "downloadUrl": "https://github.com/MHJoy99/CCUsageX",
+  "installUrl": "https://github.com/MHJoy99/CCUsageX#quick-start",
+  "screenshot": "https://mhjoy99.github.io/CCUsageX/screenshots/dashboard-light.png",
+  "image": "https://mhjoy99.github.io/CCUsageX/og-image.png",
+  "featureList": [
+    "Cost per prompt (API-equivalent)",
+    "Input, output, cache write, cache read and thinking tokens",
+    "Cache hit rate and cache savings",
+    "Response time and tokens per second per model",
+    "Subagent cost attribution",
+    "Searchable prompt text",
+    "Persistent local history",
+    "CSV export"
+  ],
+  "author": {
+    "@id": "https://mhjoy99.github.io/CCUsageX/#author"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "@id": "https://mhjoy99.github.io/CCUsageX/#faq",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How do I see my Claude Code token usage?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Claude Code writes every request, with its token counts, to local transcript files. CCUsageX reads those files and shows input, output, cache write, cache read and thinking tokens per prompt, request, model, project and session. Run npx github:MHJoy99/CCUsageX (Node.js 18+) and open http://127.0.0.1:3020. You can also try the live demo with fictional data first."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How much does my Claude Code usage cost?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "CCUsageX multiplies the tokens in each request by Anthropic's API list prices and shows an API-equivalent cost per prompt, model, project and day. If you use Claude Code through a Pro or Max subscription you are not billed per token. The figure is what the same usage would cost on the API, which is a useful measure of how heavy your usage is."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Where does Claude Code store its logs?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Claude Code saves each session as a JSONL transcript in ~/.claude/projects/<project>/<session-id>.jsonl (on Windows, C:\\Users\\<you>\\.claude\\projects). Subagent runs are stored in subagents sub-folders. If you set CLAUDE_CONFIG_DIR, the folder moves there and CCUsageX follows it. Claude Code deletes old transcripts after a retention period, 30 days by default."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does CCUsageX send my data anywhere?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. The server listens on 127.0.0.1 only, has no telemetry or analytics, no dependencies and no outbound requests. It opens Claude Code's logs read-only and keeps its own copy in ~/.ccusagex/store.json on your machine. The live demo on this site runs entirely in your browser with fictional numbers."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is CCUsageX different from ccusage?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "ccusage is an excellent command-line tool that prints daily, monthly, session and 5-hour-block cost reports, and it supports more tools than Claude Code. CCUsageX is a local web dashboard focused on the prompt level: what each prompt cost, the prompt text, cache savings, subagent attribution, and a history that outlives Claude Code's log cleanup. They answer different questions and work well side by side."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why are subagent output tokens under-counted?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "For some streamed requests, mostly from subagents, Claude Code logs only the usage snapshot taken when the stream started, when output_tokens is still a small placeholder, instead of the final total. CCUsageX keeps the highest value it sees and flags those requests as incomplete, so output and thinking tokens (and their cost) can be lower than the real figure. Input and cache counts are reported at stream start and are not affected."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does CCUsageX work with a Claude Pro or Max subscription?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Claude Code writes the same logs on every plan, so the dashboard works the same way. The cost shown is API-equivalent, not your bill. CCUsageX does not read your plan limits or remaining quota; it is a usage and cost analyzer, not a limit monitor."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I change the prices?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Edit pricing.models in config.json: input, output and cacheRead prices in USD per million tokens, plus cache-write multipliers (1.25 for the 5-minute cache, 2 for the 1-hour cache) and optional fast-mode and long-context tiers. Restart the server to apply changes. The defaults follow Anthropic's published API list prices, last checked 2026-10-06."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I install and run CCUsageX?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "You need Node.js 18 or newer. Run npx github:MHJoy99/CCUsageX, or clone the repository and start it with node server.js. The dashboard opens on port 3020; change it with --port or the PORT environment variable. On Windows there are also double-click launcher scripts, Open-CCUsageX.cmd and Close-CCUsageX.cmd."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does it keep my history after Claude Code deletes old logs?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. CCUsageX scans the transcripts incrementally every few seconds and stores its own copy in ~/.ccusagex/store.json (override with CCU_DATA_DIR). Totals stay intact after Claude Code cleans up its transcripts. History starts from whatever transcripts exist when you first run it, so the sooner you start it, the more you keep."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What do cache read, cache write and \"cache saved\" mean?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Prompt caching lets Claude Code re-use context it already sent. Cache write tokens store that context, and cache read tokens re-use it at a fraction of the normal input price. \"Cache saved\" is what the cache-read tokens would have cost at the full input price minus what they cost at the cache-read price. The cache hit rate is the share of input served from cache."
+      }
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "CCUsageX",
+      "item": "https://mhjoy99.github.io/CCUsageX/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Live demo",
+      "item": "https://mhjoy99.github.io/CCUsageX/demo/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Person",
+  "@id": "https://mhjoy99.github.io/CCUsageX/#author",
+  "name": "MHJoy99",
+  "url": "https://github.com/MHJoy99",
+  "sameAs": [
+    "https://github.com/MHJoy99"
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": "https://mhjoy99.github.io/CCUsageX/#site",
+  "name": "CCUsageX",
+  "url": "https://mhjoy99.github.io/CCUsageX/",
+  "inLanguage": "en",
+  "publisher": {
+    "@id": "https://mhjoy99.github.io/CCUsageX/#author"
+  }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="./" aria-label="CCUsageX home"><img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/logo-static.svg" alt="" width="28" height="28">CCUsageX</a>
+    <nav class="nav" aria-label="Primary">
+      <a class="hide-s" href="#features">Features</a>
+      <a class="hide-s" href="#how">How it works</a>
+      <a class="hide-s" href="#compare">Compare</a>
+      <a class="hide-s" href="#faq">FAQ</a>
+      <a href="demo/">Live demo</a>
+      <a class="gh" href="https://github.com/MHJoy99/CCUsageX">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <p class="eyebrow">Free · Open source · Runs locally</p>
+    <h1 id="hero-title">See every prompt, token and dollar of your <span class="grad">Claude Code</span> usage.</h1>
+    <p class="lede">CCUsageX is a Claude Code usage dashboard that reads Claude Code's own logs on your machine. Track token usage and API-equivalent cost per prompt, see what prompt caching saved you, and keep your history, with nothing leaving your computer.</p>
+    <div class="cta">
+      <a class="btn primary" href="demo/">Try the live demo <span aria-hidden="true">→</span></a>
+      <a class="btn" href="https://github.com/MHJoy99/CCUsageX">View on GitHub</a>
+    </div>
+    <div class="install" id="install">
+      <p class="cmd-label">Run it now (Node.js 18+)</p>
+      <div class="cmd"><span class="p" aria-hidden="true">$</span><code>npx github:MHJoy99/CCUsageX</code><button type="button" hidden data-copy="npx github:MHJoy99/CCUsageX" aria-label="Copy npx command">Copy</button></div>
+      <p class="cmd-label">Or clone and start</p>
+      <div class="cmd"><span class="p" aria-hidden="true">$</span><code>git clone https://github.com/MHJoy99/CCUsageX.git && cd CCUsageX && node server.js</code><button type="button" hidden data-copy="git clone https://github.com/MHJoy99/CCUsageX.git &amp;&amp; cd CCUsageX &amp;&amp; node server.js" aria-label="Copy git clone command">Copy</button></div>
+    </div>
+    <ul class="trust">
+      <li>MIT licensed</li>
+      <li>Zero dependencies</li>
+      <li>Binds to 127.0.0.1 only</li>
+      <li>Windows, macOS, Linux</li>
+    </ul>
+    <div class="hero-art">
+      <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/hero-banner.svg" alt="CCUsageX dashboard overview: cost, tokens, cache hit rate and top prompts for Claude Code" width="1280" height="520" fetchpriority="high">
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="kpi-title" style="padding-top:0">
+  <div class="wrap">
+    <h2 id="kpi-title" class="center" style="font-size:clamp(1.4rem,3vw,2rem);text-align:center">Your Claude Code numbers, at a glance</h2>
+    <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/kpi-strip.svg" alt="Sample 30-day summary: 1,284 requests, 96 prompts, 14 sessions, 182.4M tokens, $87.42 API-equivalent cost, 96.1% cache hit rate" width="1280" height="160" loading="lazy" style="margin:20px auto 0;border-radius:16px">
+    <p style="text-align:center;color:var(--muted);font-size:.88rem;margin:10px 0 0">Fictional demo data.</p>
+  </div>
+</section>
+
+<section id="features" class="alt" aria-labelledby="features-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">Features</p>
+      <h2 id="features-title">A Claude Code cost tracker that goes down to the prompt</h2>
+      <p>Most tools stop at daily totals. CCUsageX ties tokens, cost, time and tools back to the exact prompt that caused them.</p>
+    </div>
+    <div class="grid g2">
+      <article class="card feature">
+        <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/feature-cost.svg" alt="Animated bar chart of Claude Code API-equivalent cost per model and per prompt" width="640" height="400" loading="lazy">
+        <div class="body"><h3>Cost per prompt, model and project</h3><p>API-equivalent cost for every prompt and request, split by model and project. See which prompts were expensive and why, using prices you can edit.</p></div>
+      </article>
+      <article class="card feature">
+        <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/feature-tokens-cache.svg" alt="Animated breakdown of Claude Code tokens: input, output, cache write, cache read and thinking, with cache hit rate" width="640" height="400" loading="lazy">
+        <div class="body"><h3>Token usage and cache savings</h3><p>Input, output, cache write, cache read and thinking tokens, plus your cache hit rate and the dollars prompt caching saved.</p></div>
+      </article>
+      <article class="card feature">
+        <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/feature-speed.svg" alt="Animated response time chart and tokens per second for each Claude model" width="640" height="400" loading="lazy">
+        <div class="body"><h3>Response time and speed</h3><p>Typical and slowest-5% response times, and tokens per second for every model you use, so you can tell when something is slow.</p></div>
+      </article>
+      <article class="card feature">
+        <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/feature-prompts.svg" alt="Animated list of Claude Code prompts with their cost, tools used and subagent activity" width="640" height="400" loading="lazy">
+        <div class="body"><h3>Prompt text, tools and subagents</h3><p>Search your prompts, open any one to see its text, tools, requests and subagent work, and export everything to CSV.</p></div>
+      </article>
+    </div>
+    <div class="grid g3" style="margin-top:20px">
+      <div class="card"><div class="body"><h3>Subagent attribution</h3><p>Subagent work is charged to the prompt that spawned it, so one prompt shows its true total.</p></div></div>
+      <div class="card"><div class="body"><h3>Persistent history</h3><p>A local copy of your usage survives Claude Code's automatic transcript cleanup.</p></div></div>
+      <div class="card"><div class="body"><h3>Live and light</h3><p>Rescans every few seconds, incremental, no database and no build step.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="screenshots" aria-labelledby="shots-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">Screenshots</p>
+      <h2 id="shots-title">A Claude Code usage dashboard in light and dark</h2>
+      <p>Screenshots use fictional data. The <a href="demo/">live demo</a> lets you click around.</p>
+    </div>
+    <div class="shots">
+      <figure class="shot">
+        <picture>
+          <source srcset="screenshots/dashboard-dark.png" media="(prefers-color-scheme: dark)">
+          <img src="screenshots/dashboard-light.png" alt="CCUsageX dashboard with cost, token usage by type, model breakdown and top prompts" width="1440" height="1800" loading="lazy">
+        </picture>
+        <figcaption>The dashboard: cost, tokens by type, models, tools and top prompts for the last 30 days.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="screenshots/prompt-drawer.png" alt="Prompt detail drawer showing the prompt text, cost, tokens, tools and subagent requests" width="1440" height="1000" loading="lazy">
+        <figcaption>Open any prompt to see its text, requests, tools and subagents.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="how" class="alt" aria-labelledby="how-title">
+  <div class="wrap how">
+    <div>
+      <p class="kicker">How it works</p>
+      <h2 id="how-title">Your logs in, a dashboard out</h2>
+      <ol class="steps">
+        <li><strong>Read</strong>Claude Code already logs every request to <code>~/.claude/projects/**/*.jsonl</code>. CCUsageX reads them read-only.</li>
+        <li><strong>Price and group</strong>Tokens are priced with editable API list prices and grouped by prompt, session, model and project. Subagents join the prompt that started them.</li>
+        <li><strong>Keep</strong>A local copy in <code>~/.ccusagex/store.json</code> keeps your history after Claude Code cleans up.</li>
+        <li><strong>Serve</strong>A tiny Node server on <code>127.0.0.1:3020</code> serves the dashboard and a small JSON API.</li>
+      </ol>
+    </div>
+    <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/architecture.svg" alt="Architecture diagram: Claude Code JSONL logs are read by the CCUsageX scanner, priced, stored locally and served to the browser dashboard on 127.0.0.1" width="1280" height="560" loading="lazy">
+  </div>
+</section>
+
+<section id="start" aria-labelledby="start-title">
+  <div class="wrap how">
+    <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/quickstart-terminal.svg" alt="Terminal showing git clone and node server.js starting the dashboard on http://127.0.0.1:3020" width="880" height="300" loading="lazy">
+    <div>
+      <p class="kicker">Quick start</p>
+      <h2 id="start-title">One command, no install, no account</h2>
+      <p style="color:var(--text-2)">With Node.js 18 or newer, run <code>npx github:MHJoy99/CCUsageX</code> and open <code>http://127.0.0.1:3020</code>. Prefer a checkout? Clone the repo and run <code>node server.js</code>. Prices live in <code>config.json</code>; port and data folder are one flag or variable away.</p>
+      <p style="margin-top:20px"><a class="btn primary" href="https://github.com/MHJoy99/CCUsageX#quick-start">Read the install guide</a></p>
+    </div>
+  </div>
+</section>
+
+<section id="privacy" class="alt" aria-labelledby="privacy-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">Privacy</p>
+      <h2 id="privacy-title">Your prompts never leave your machine</h2>
+      <p>Prompts are sensitive. CCUsageX is built so you do not have to trust a service, only a small piece of code you can read.</p>
+    </div>
+    <ul class="priv">
+      <li><b>Local only</b><span>The server binds to 127.0.0.1, so only your own computer can open it.</span></li>
+      <li><b>Read-only</b><span>Claude Code's logs are opened for reading and never modified.</span></li>
+      <li><b>No telemetry</b><span>No analytics, no accounts, no outbound requests, no third-party scripts.</span></li>
+      <li><b>Zero dependencies</b><span>Plain Node.js with its standard library. Nothing to audit but the repo.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section id="compare" aria-labelledby="compare-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">Comparison</p>
+      <h2 id="compare-title">CCUsageX vs ccusage, Claude-Code-Usage-Monitor and Sniffly</h2>
+      <p>Each of these is good at something different. Here is where CCUsageX fits, and where another tool is the better pick.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <caption>Based on each project's public README in October 2026. Tools change; check the projects for current features. Sniffly's last update was in 2025.</caption>
+        <thead><tr><th scope="col">&nbsp;</th><th scope="col" class="us">CCUsageX</th><th scope="col"><a href="https://github.com/ryoppippi/ccusage">ccusage</a></th><th scope="col"><a href="https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor">Claude-Code-Usage-Monitor</a></th><th scope="col"><a href="https://github.com/chiphuyen/sniffly">Sniffly</a></th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Best at</th><td class="us">Prompt-level cost, prompt text and history in a web UI</td><td>Fast CLI cost reports (daily, monthly, session, 5-hour blocks)</td><td>Live terminal monitor of session limits and burn rate</td><td>Local web dashboard of usage stats and message history</td></tr>
+          <tr><th scope="row">Interface</th><td class="us">Local web dashboard</td><td>Command line</td><td>Terminal UI</td><td>Local web dashboard</td></tr>
+          <tr><th scope="row">Setup</th><td class="us"><code>npx</code> or clone, Node 18+, zero dependencies</td><td><code>npx</code> / <code>bunx</code> or global install</td><td>Python package</td><td>Python package</td></tr>
+          <tr><th scope="row">Cost per prompt</th><td class="us"><span class="y">Yes</span> · API-equivalent</td><td><span class="n">Reports by day, month, session</span></td><td><span class="n">Not its focus</span></td><td><span class="n">Not its focus</span></td></tr>
+          <tr><th scope="row">Prompt text, searchable</th><td class="us"><span class="y">Yes</span></td><td><span class="n">No</span></td><td><span class="n">No</span></td><td><span class="y">Yes</span> · message history</td></tr>
+          <tr><th scope="row">Cache savings in dollars and hit rate</th><td class="us"><span class="y">Yes</span></td><td><span class="n">Shows cache tokens and cost</span></td><td><span class="n">Shows cache tokens</span></td><td><span class="n">Shows cache tokens</span></td></tr>
+          <tr><th scope="row">Subagent attribution to the prompt</th><td class="us"><span class="y">Yes</span> · rolled into the parent prompt</td><td><span class="n">Not its focus</span></td><td><span class="n">Not its focus</span></td><td><span class="n">Not its focus</span></td></tr>
+          <tr><th scope="row">History after Claude Code cleans up logs</th><td class="us"><span class="y">Yes</span> · own local store</td><td><span class="n">Reads live logs</span></td><td><span class="n">Reads live logs</span></td><td><span class="n">Reads live logs</span></td></tr>
+          <tr><th scope="row">Plan limits and burn-rate forecast</th><td class="us"><span class="n">No</span></td><td><span class="n">5-hour block reports</span></td><td><span class="y">Yes</span> · its main job</td><td><span class="n">No</span></td></tr>
+          <tr><th scope="row">Works with other AI coding tools</th><td class="us"><span class="n">Claude Code only</span></td><td><span class="y">Yes</span> · multi-tool</td><td><span class="n">Claude Code only</span></td><td><span class="n">Claude Code only</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color:var(--text-2);margin-top:18px;max-width:46rem">Want a fast CLI or multi-tool reports? Use ccusage. Watching your plan limits live? Use Claude-Code-Usage-Monitor. Want to know which prompt cost what, and keep that history? That is CCUsageX.</p>
+  </div>
+</section>
+
+<section id="faq" class="alt" aria-labelledby="faq-title">
+  <div class="narrow">
+    <div class="sec-head">
+      <p class="kicker">FAQ</p>
+      <h2 id="faq-title">Claude Code usage and cost: common questions</h2>
+    </div>
+    <div class="faq">
+      <details open><summary><h3>How do I see my Claude Code token usage?</h3></summary><div class="ans"><p>Claude Code writes every request, with its token counts, to local transcript files. CCUsageX reads those files and shows input, output, cache write, cache read and thinking tokens per prompt, request, model, project and session.</p><p>Run <code>npx github:MHJoy99/CCUsageX</code> (Node.js 18+) and open <code>http://127.0.0.1:3020</code>. You can also try the <a href="demo/">live demo with fictional data</a> first.</p></div></details>
+      <details><summary><h3>How much does my Claude Code usage cost?</h3></summary><div class="ans"><p>CCUsageX multiplies the tokens in each request by Anthropic's API list prices and shows an API-equivalent cost per prompt, model, project and day.</p><p>If you use Claude Code through a Pro or Max subscription you are not billed per token. The figure is what the same usage would cost on the API, which is a useful measure of how heavy your usage is.</p></div></details>
+      <details><summary><h3>Where does Claude Code store its logs?</h3></summary><div class="ans"><p>Claude Code saves each session as a JSONL transcript in <code>~/.claude/projects/&lt;project&gt;/&lt;session-id&gt;.jsonl</code> (on Windows, <code>C:\Users\&lt;you&gt;\.claude\projects</code>). Subagent runs are stored in <code>subagents</code> sub-folders.</p><p>If you set <code>CLAUDE_CONFIG_DIR</code>, the folder moves there and CCUsageX follows it. Claude Code deletes old transcripts after a retention period, 30 days by default.</p></div></details>
+      <details><summary><h3>Does CCUsageX send my data anywhere?</h3></summary><div class="ans"><p>No. The server listens on 127.0.0.1 only, has no telemetry or analytics, no dependencies and no outbound requests. It opens Claude Code's logs read-only and keeps its own copy in <code>~/.ccusagex/store.json</code> on your machine.</p><p>The live demo on this site runs entirely in your browser with fictional numbers.</p></div></details>
+      <details><summary><h3>How is CCUsageX different from ccusage?</h3></summary><div class="ans"><p>ccusage is an excellent command-line tool that prints daily, monthly, session and 5-hour-block cost reports, and it supports more tools than Claude Code. CCUsageX is a local web dashboard focused on the prompt level: what each prompt cost, the prompt text, cache savings, subagent attribution, and a history that outlives Claude Code's log cleanup.</p><p>They answer different questions and work well side by side.</p></div></details>
+      <details><summary><h3>Why are subagent output tokens under-counted?</h3></summary><div class="ans"><p>For some streamed requests, mostly from subagents, Claude Code logs only the usage snapshot taken when the stream started, when <code>output_tokens</code> is still a small placeholder, instead of the final total.</p><p>CCUsageX keeps the highest value it sees and flags those requests as incomplete, so output and thinking tokens (and their cost) can be lower than the real figure. Input and cache counts are reported at stream start and are not affected.</p></div></details>
+      <details><summary><h3>Does CCUsageX work with a Claude Pro or Max subscription?</h3></summary><div class="ans"><p>Yes. Claude Code writes the same logs on every plan, so the dashboard works the same way. The cost shown is API-equivalent, not your bill.</p><p>CCUsageX does not read your plan limits or remaining quota; it is a usage and cost analyzer, not a limit monitor.</p></div></details>
+      <details><summary><h3>Can I change the prices?</h3></summary><div class="ans"><p>Yes. Edit <code>pricing.models</code> in <code>config.json</code>: input, output and cacheRead prices in USD per million tokens, plus cache-write multipliers (1.25 for the 5-minute cache, 2 for the 1-hour cache) and optional fast-mode and long-context tiers. Restart the server to apply changes.</p><p>The defaults follow Anthropic's published API list prices, last checked 2026-10-06.</p></div></details>
+      <details><summary><h3>How do I install and run CCUsageX?</h3></summary><div class="ans"><p>You need Node.js 18 or newer. Run <code>npx github:MHJoy99/CCUsageX</code>, or clone the repository and start it with <code>node server.js</code>. The dashboard opens on port 3020; change it with <code>--port</code> or the <code>PORT</code> environment variable.</p><p>On Windows there are also double-click launcher scripts, <code>Open-CCUsageX.cmd</code> and <code>Close-CCUsageX.cmd</code>.</p></div></details>
+      <details><summary><h3>Does it keep my history after Claude Code deletes old logs?</h3></summary><div class="ans"><p>Yes. CCUsageX scans the transcripts incrementally every few seconds and stores its own copy in <code>~/.ccusagex/store.json</code> (override with <code>CCU_DATA_DIR</code>). Totals stay intact after Claude Code cleans up its transcripts.</p><p>History starts from whatever transcripts exist when you first run it, so the sooner you start it, the more you keep.</p></div></details>
+      <details><summary><h3>What do cache read, cache write and "cache saved" mean?</h3></summary><div class="ans"><p>Prompt caching lets Claude Code re-use context it already sent. Cache write tokens store that context, and cache read tokens re-use it at a fraction of the normal input price.</p><p>"Cache saved" is what the cache-read tokens would have cost at the full input price minus what they cost at the cache-read price. The cache hit rate is the share of input served from cache.</p></div></details>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="final-title">
+  <div class="wrap">
+    <div class="band">
+      <h2 id="final-title">Find out where your Claude Code tokens go</h2>
+      <p>Open the live demo in your browser, or run CCUsageX on your own logs in one command.</p>
+      <div class="cta"><a class="btn" href="demo/">Try the live demo</a><a class="btn ghost" href="https://github.com/MHJoy99/CCUsageX">View on GitHub</a></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <p><strong>CCUsageX</strong>, a free Claude Code usage dashboard.</p>
+      <p>MIT licensed. Built by <a href="https://github.com/MHJoy99">MHJoy99</a>. Not affiliated with Anthropic.</p>
+    </div>
+    <nav aria-label="Footer"><ul>
+      <li><a href="https://github.com/MHJoy99/CCUsageX">GitHub repository</a></li>
+      <li><a href="https://github.com/MHJoy99/CCUsageX/blob/main/docs/FAQ.md">Full FAQ</a></li>
+      <li><a href="https://github.com/MHJoy99/CCUsageX/blob/main/docs/ARCHITECTURE.md">Architecture</a></li>
+      <li><a href="https://github.com/MHJoy99/CCUsageX/issues">Report an issue</a></li>
+      <li><a href="llms.txt">llms.txt</a></li>
+    </ul></nav>
+  </div>
+</footer>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function (b) {
+  if (!navigator.clipboard) return;
+  b.hidden = false;
+  b.addEventListener('click', function () {
+    navigator.clipboard.writeText(b.dataset.copy).then(function () {
+      b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1600);
+    });
+  });
+});
+</script>
+</body>
+</html>

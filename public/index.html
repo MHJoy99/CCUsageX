@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCUsageX — Claude Code usage dashboard</title>
+<meta name="color-scheme" content="light dark">
+<script>
+  // Apply the saved theme before first paint (light editorial is the default).
+  (function () {
+    var t = 'light';
+    try { var s = localStorage.getItem('ccu.theme'); if (s === 'light' || s === 'dark') t = s; } catch (e) {}
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar" id="topbar">
+  <form class="topbar-in" id="filters" role="search" aria-label="Filters" onsubmit="return false">
+    <a class="brand-pill" href="#" id="brand" aria-label="CCUsageX, back to top">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V12M10 20V5M15 20v-8M20 20V9"/></svg>
+      CCUsageX
+    </a>
+    <div class="pill-group" role="group" aria-label="Time range" id="seg-range">
+      <button type="button" data-v="today" aria-pressed="false">Today</button>
+      <button type="button" data-v="24h" aria-pressed="false">Last 24h</button>
+      <button type="button" data-v="7d" aria-pressed="false">7 days</button>
+      <button type="button" data-v="30d" aria-pressed="false">30 days</button>
+      <button type="button" data-v="all" aria-pressed="true">All</button>
+    </div>
+    <select class="sel r2" id="f-model" aria-label="Model"><option value="">All models</option></select>
+    <select class="sel r2" id="f-project" aria-label="Project"><option value="">All projects</option></select>
+    <select class="sel r2" id="f-session" aria-label="Session"><option value="">All sessions</option></select>
+    <select class="sel r2" id="f-kind" aria-label="Type">
+      <option value="">All types</option>
+      <option value="main">Main</option>
+      <option value="subagent">Subagent</option>
+    </select>
+    <span class="tb-break" aria-hidden="true"></span>
+    <input class="search r2" id="f-q" type="search" placeholder="Search…  ( / )" aria-label="Search prompt text, response and tools" autocomplete="off">
+    <button type="button" class="btn ghost r2" id="reset-btn" title="Reset all filters">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+      Reset
+    </button>
+    <span class="spacer"></span>
+    <div class="live" id="live" data-state="idle" role="status" aria-live="polite">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="live-state">Connecting…</span>
+      <span class="muted" id="live-updated">· updated —</span>
+    </div>
+    <button type="button" class="icon-btn" id="refresh-btn" title="Refresh now (auto-refresh every 10 s)" aria-label="Refresh now">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+    </button>
+    <button type="button" class="icon-btn theme-btn" id="theme-btn" title="Toggle light / dark theme" aria-label="Toggle theme">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="btn ink" id="export-btn" href="/api/export.csv" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>
+      Export CSV
+    </a>
+  </form>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <!-- ================= Hero ================= -->
+    <section class="hero" id="overview">
+      <div class="hero-grid">
+        <div class="rv">
+          <h1>Your Claude Code, analysed</h1>
+          <p class="subline" id="subtitle">Every prompt, token and API-equivalent dollar on this machine</p>
+        </div>
+        <div class="hero-links rv" style="--d:120ms">
+          <div class="hl" id="hero-live" data-state="idle">
+            <div class="tag"><span class="dot" aria-hidden="true"></span><span id="hl-tag-t">LIVE</span></div>
+            <div class="t" id="hl-t">Connecting…</div>
+            <div class="d" id="hl-d">Auto-refreshing every 10 s</div>
+          </div>
+          <button type="button" class="hl" id="hero-cost" data-goto="cost">
+            <div class="tag">THIS RANGE</div>
+            <div class="t" id="hc-t">—</div>
+            <div class="d">API-equivalent at list prices. You're on a subscription; this is not money charged.</div>
+            <svg class="go" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 17L17 7M8 7h9v9"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="kpi-strip rv" id="kpis" style="--d:80ms" aria-label="Key figures"></div>
+      <div class="strip-note" id="strip-note" hidden></div>
+
+      <div class="trio" id="trio">
+        <article class="tcard rv" id="t-cost" style="--d:0ms">
+          <h3><span class="sq s1"></span>Cost per prompt</h3>
+          <p class="cap">API-equivalent USD for your 12 costliest prompts · Lower is better</p>
+          <div class="tbody" id="t-cost-body"></div>
+        </article>
+        <article class="tcard rv" id="t-speed" style="--d:90ms">
+          <h3><span class="sq s2"></span>Speed</h3>
+          <p class="cap">Output tokens per second, median per request · Higher is better</p>
+          <div class="tbody" id="t-speed-body"></div>
+        </article>
+        <article class="tcard rv" id="t-tok" style="--d:180ms">
+          <h3><span class="sq s3"></span>Tokens per prompt</h3>
+          <p class="cap">Total tokens incl. cache for your 12 heaviest prompts · Lower is better</p>
+          <div class="tbody" id="t-tok-body"></div>
+        </article>
+      </div>
+
+      <div class="features">
+        <button type="button" class="fcard purple rv" id="f-expensive" style="--d:0ms" aria-label="Most expensive prompt today"></button>
+        <div class="fcard plum rv" id="f-cache" style="--d:90ms"></div>
+        <aside class="feed rv" id="feed" style="--d:180ms" aria-labelledby="feed-h">
+          <div class="feed-head"><h3 id="feed-h">Activity</h3><span class="muted" style="font-size:12px">newest prompts</span></div>
+          <div class="feed-list" id="feed-list"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ================= Sections ================= -->
+    <div class="page">
+      <nav class="index" id="index" aria-label="Sections">
+        <div class="index-title">ON THIS PAGE</div>
+        <ul>
+          <li><a href="#overview" data-sec="overview">Overview</a></li>
+          <li><a href="#cost" data-sec="cost">Cost</a></li>
+          <li><a href="#tokens" data-sec="tokens">Tokens &amp; Cache</a></li>
+          <li><a href="#speed" data-sec="speed">Speed &amp; Response</a></li>
+          <li><a href="#models" data-sec="models">Models</a></li>
+          <li><a href="#prompts" data-sec="prompts">Prompts<span class="n" id="cnt-prompts"></span></a></li>
+          <li><a href="#tools" data-sec="tools">Tools<span class="n" id="cnt-tools"></span></a></li>
+          <li><a href="#sessions" data-sec="sessions">Sessions<span class="n" id="cnt-sessions"></span></a></li>
+          <li><a href="#requests" data-sec="requests">Requests<span class="n" id="cnt-requests"></span></a></li>
+        </ul>
+      </nav>
+
+      <div class="sections" id="sections">
+        <section class="sec" id="cost" data-sec>
+          <div class="sec-head rv"><h2><span class="sq"></span>Cost</h2></div>
+          <p class="sec-sub rv">What your usage would cost at Anthropic API list prices, split by token type. Cached reads are cheap; writes and output are not.</p>
+          <div id="cards-cost"></div>
+        </section>
+
+        <section class="sec" id="tokens" data-sec>
+          <div class="sec-head rv"><h2><span class="sq"></span>Tokens &amp; Cache</h2></div>
+          <p class="sec-sub rv">Input, output, cache writes and cache reads, over time and per prompt.</p>
+          <div id="cards-tokens"></div>
+        </section>
+
+        <section class="sec" id="speed" data-sec>
+          <div class="sec-head rv"><h2><span class="sq"></span>Speed &amp; Response time</h2></div>
+          <p class="sec-sub rv">Response time is the time from the previous event to the end of the model's reply; it excludes tool run time.</p>
+          <div id="cards-speed"></div>
+        </section>
+
+        <section class="sec" id="models" data-sec>
+          <div class="sec-head rv"><h2><span class="sq"></span>Models</h2></div>
+          <p class="sec-sub rv">Which model, effort level, project and Claude Code version did the work.</p>
+          <div id="cards-models"></div>
+        </section>
+
+        <section class="sec" id="prompts" data-sec>
+          <div class="sec-head rv"><h2><span class="sq"></span>Prompts</h2></div>
+          <p class="sec-sub rv">Everything you typed, with what it cost. Click a row to read the prompt and its requests.</p>
+          <div class="table-card rv">
+            <div class="table-head"><h3>All prompts</h3><span class="muted" id="prompts-count"></span><span class="spacer"></span><button type="button" class="tool-btn" data-copy="prompts" title="Copy link to this section" aria-label="Copy link to Prompts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></button></div>
+            <div class="table-wrap" id="prompts-body"></div>
+            <div class="pager" id="prompts-pager" hidden></div>
+          </div>
+        </section>
+
+        <section class="sec" id="tools" data-sec>
+          <div class="sec-head rv"><h2><span class="sq"></span>Tools</h2></div>
+          <p class="sec-sub rv">Which tools Claude called, counted per request.</p>
+          <div id="cards-tools"></div>
+        </section>
+
+        <section class="sec" id="sessions" data-sec>
+          <div class="sec-head rv"><h2><span class="sq"></span>Sessions</h2></div>
+          <p class="sec-sub rv">One row per Claude Code conversation. Click a row to filter the page to that session.</p>
+          <div class="table-card rv">
+            <div class="table-head"><h3>All sessions</h3><span class="muted" id="sessions-count"></span><span class="spacer"></span><button type="button" class="tool-btn" data-copy="sessions" title="Copy link to this section" aria-label="Copy link to Sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></button></div>
+            <div class="table-wrap" id="sessions-body"></div>
+            <div class="pager" id="sessions-pager" hidden></div>
+          </div>
+        </section>
+
+        <section class="sec" id="requests" data-sec>
+          <div class="sec-head rv"><h2><span class="sq"></span>Requests</h2></div>
+          <p class="sec-sub rv">Every API call, token by token. Hide or show columns with the Columns button.</p>
+          <div class="table-card rv">
+            <div class="table-head" id="req-head">
+              <h3>All requests</h3><span class="muted" id="requests-count"></span><span class="spacer"></span>
+              <button type="button" class="btn sm" id="col-btn" aria-haspopup="true" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+                Columns
+              </button>
+              <button type="button" class="tool-btn" data-copy="requests" title="Copy link to this section" aria-label="Copy link to Requests"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></button>
+              <div class="popover hidden" id="col-pop" role="group" aria-label="Column settings"></div>
+            </div>
+            <div class="table-wrap" id="requests-body"></div>
+            <div class="pager" id="requests-pager" hidden></div>
+          </div>
+        </section>
+
+        <footer class="footer">
+          <div id="pricing-note">API-equivalent at Anthropic list prices (config.json). You're on a subscription; this is not money charged.</div>
+          <div id="partial-note" hidden></div>
+        </footer>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Detail drawer -->
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" aria-hidden="true" tabindex="-1">
+  <div class="drawer-head">
+    <button type="button" class="icon-btn hidden" id="drawer-back" aria-label="Back" title="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <h2 id="drawer-title">Details</h2>
+    <button type="button" class="icon-btn" id="drawer-close" aria-label="Close details (Esc)" title="Close (Esc)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<script src="charts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

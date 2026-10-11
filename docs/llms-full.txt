@@ -1,0 +1,98 @@
+# CCUsageX: full description
+
+Website: https://mhjoy99.github.io/CCUsageX/
+Repository: https://github.com/MHJoy99/CCUsageX
+License: MIT
+Author: MHJoy99 (https://github.com/MHJoy99)
+Not affiliated with Anthropic.
+
+## What it is
+
+CCUsageX is a free, open-source, local-only dashboard for Claude Code usage. Also described as: Claude Code usage dashboard, Claude Code token usage viewer, Claude Code cost tracker, Claude Code analytics. It reads the transcript logs that Claude Code writes on the user's computer and turns them into a browser dashboard.
+
+For each prompt, request, model, project and session it shows: input tokens, output tokens, cache write tokens, cache read tokens, thinking tokens, API-equivalent cost, cache hit rate, dollars saved by prompt caching, response time (typical and slowest 5%), tokens per second per model, tools used (for example Bash, Read, Edit, Grep, Write, WebSearch), the prompt text (searchable), and subagent activity.
+
+"Cost" is API-equivalent: tokens multiplied by Anthropic API list prices. Users on a Claude Pro or Max subscription are not billed per token; the number shows what the same usage would cost through the API.
+
+## Requirements and install
+
+- Node.js 18 or newer. No other dependencies.
+- Windows, macOS and Linux.
+- Run without installing: npx github:MHJoy99/CCUsageX
+- Or clone: git clone https://github.com/MHJoy99/CCUsageX.git && cd CCUsageX && node server.js
+- Then open http://127.0.0.1:3020 (default port 3020; change with --port <n> or the PORT environment variable).
+- Windows launchers: Open-CCUsageX.cmd and Close-CCUsageX.cmd.
+
+## How it works
+
+1. Claude Code writes one JSONL transcript per session to ~/.claude/projects/<project>/<session-id>.jsonl (the folder is $CLAUDE_CONFIG_DIR/projects if CLAUDE_CONFIG_DIR is set). Subagent transcripts are in subagents sub-folders.
+2. CCUsageX scans these files incrementally (every 5 seconds by default, setting scanIntervalSeconds), read-only.
+3. Each request's token usage is priced using the price table in config.json and grouped by prompt, session, model and project. Work done by subagents is attributed to the prompt that spawned it.
+4. CCUsageX keeps its own copy of the data in ~/.ccusagex/store.json (override the folder with CCU_DATA_DIR), so history survives Claude Code deleting old transcripts (Claude Code removes them after a retention period, 30 days by default).
+5. A small Node.js HTTP server bound to 127.0.0.1 serves the dashboard (static HTML, CSS and JavaScript) and a JSON API (/api/summary, /api/prompts, /api/requests, /api/sessions, /api/live, /api/export.csv and others).
+
+## Configuration (config.json)
+
+- startDate: "all" (default) or a YYYY-MM-DD date to ignore older usage (also CCU_START_DATE).
+- port: default 3020.
+- scanIntervalSeconds: default 5.
+- pricing.models: per-model prices in USD per million tokens: input, output, cacheRead; optional fastMultiplier and a longContext tier (thresholdTokens, input, output, cacheRead). Cache write prices are derived with cacheWrite5mMultiplier (1.25) and cacheWrite1hMultiplier (2) applied to the input price.
+- Default prices follow Anthropic's published API list prices, last checked 2026-10-06. Edit and restart to change them.
+
+## Data model (as shown in the dashboard)
+
+- Request: one API call to a Claude model, with model, timestamp, token counts by type, tools used, whether it came from a subagent, and an estimated cost.
+- Prompt: one human message and everything it triggered (requests, tool calls, subagent requests). Prompt cost is the sum of its requests, including subagents.
+- Session: a Claude Code conversation (one transcript file plus its subagents).
+- Project: the working directory the session ran in.
+- Cache hit rate: share of input tokens served from the prompt cache. Cache saved: cost of the cache-read tokens at the full input price minus their cost at the cache-read price.
+
+## Privacy
+
+The server listens on 127.0.0.1 only. It has no telemetry, analytics, accounts or outbound requests, and no dependencies. Claude Code's logs are opened read-only. The stored copy and all prompt text stay on the user's machine. The website demo (https://mhjoy99.github.io/CCUsageX/demo/) runs in the browser with entirely fictional data.
+
+## Known limitation
+
+For some streamed requests, mostly from subagents, Claude Code logs only the usage snapshot from the start of the stream, when output_tokens is still a placeholder. CCUsageX keeps the highest value seen and marks these requests as incomplete; output and thinking tokens and their cost may then be under-counted. Input and cache counts are not affected.
+
+## How it compares
+
+- ccusage (https://github.com/ryoppippi/ccusage): excellent CLI reports (daily, monthly, session, 5-hour blocks), supports several coding tools. CCUsageX is a web dashboard focused on per-prompt cost, prompt text, cache savings, subagent attribution and persistent history.
+- Claude-Code-Usage-Monitor (https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor): live terminal monitor of plan limits and burn rate. CCUsageX does not monitor plan limits.
+- Sniffly (https://github.com/chiphuyen/sniffly): local web dashboard for Claude Code usage stats and message history; last updated in 2025.
+Comparison is based on public READMEs as of October 2026 and may change.
+
+## Frequently asked questions
+
+Q: How do I see my Claude Code token usage?
+A: Claude Code writes every request, with its token counts, to local transcript files. CCUsageX reads those files and shows input, output, cache write, cache read and thinking tokens per prompt, request, model, project and session. Run npx github:MHJoy99/CCUsageX (Node.js 18+) and open http://127.0.0.1:3020. You can also try the live demo with fictional data first.
+
+Q: How much does my Claude Code usage cost?
+A: CCUsageX multiplies the tokens in each request by Anthropic's API list prices and shows an API-equivalent cost per prompt, model, project and day. If you use Claude Code through a Pro or Max subscription you are not billed per token. The figure is what the same usage would cost on the API, which is a useful measure of how heavy your usage is.
+
+Q: Where does Claude Code store its logs?
+A: Claude Code saves each session as a JSONL transcript in ~/.claude/projects/<project>/<session-id>.jsonl (on Windows, C:\Users\<you>\.claude\projects). Subagent runs are stored in subagents sub-folders. If you set CLAUDE_CONFIG_DIR, the folder moves there and CCUsageX follows it. Claude Code deletes old transcripts after a retention period, 30 days by default.
+
+Q: Does CCUsageX send my data anywhere?
+A: No. The server listens on 127.0.0.1 only, has no telemetry or analytics, no dependencies and no outbound requests. It opens Claude Code's logs read-only and keeps its own copy in ~/.ccusagex/store.json on your machine. The live demo on this site runs entirely in your browser with fictional numbers.
+
+Q: How is CCUsageX different from ccusage?
+A: ccusage is an excellent command-line tool that prints daily, monthly, session and 5-hour-block cost reports, and it supports more tools than Claude Code. CCUsageX is a local web dashboard focused on the prompt level: what each prompt cost, the prompt text, cache savings, subagent attribution, and a history that outlives Claude Code's log cleanup. They answer different questions and work well side by side.
+
+Q: Why are subagent output tokens under-counted?
+A: For some streamed requests, mostly from subagents, Claude Code logs only the usage snapshot taken when the stream started, when output_tokens is still a small placeholder, instead of the final total. CCUsageX keeps the highest value it sees and flags those requests as incomplete, so output and thinking tokens (and their cost) can be lower than the real figure. Input and cache counts are reported at stream start and are not affected.
+
+Q: Does CCUsageX work with a Claude Pro or Max subscription?
+A: Yes. Claude Code writes the same logs on every plan, so the dashboard works the same way. The cost shown is API-equivalent, not your bill. CCUsageX does not read your plan limits or remaining quota; it is a usage and cost analyzer, not a limit monitor.
+
+Q: Can I change the prices?
+A: Yes. Edit pricing.models in config.json: input, output and cacheRead prices in USD per million tokens, plus cache-write multipliers (1.25 for the 5-minute cache, 2 for the 1-hour cache) and optional fast-mode and long-context tiers. Restart the server to apply changes. The defaults follow Anthropic's published API list prices, last checked 2026-10-06.
+
+Q: How do I install and run CCUsageX?
+A: You need Node.js 18 or newer. Run npx github:MHJoy99/CCUsageX, or clone the repository and start it with node server.js. The dashboard opens on port 3020; change it with --port or the PORT environment variable. On Windows there are also double-click launcher scripts, Open-CCUsageX.cmd and Close-CCUsageX.cmd.
+
+Q: Does it keep my history after Claude Code deletes old logs?
+A: Yes. CCUsageX scans the transcripts incrementally every few seconds and stores its own copy in ~/.ccusagex/store.json (override with CCU_DATA_DIR). Totals stay intact after Claude Code cleans up its transcripts. History starts from whatever transcripts exist when you first run it, so the sooner you start it, the more you keep.
+
+Q: What do cache read, cache write and "cache saved" mean?
+A: Prompt caching lets Claude Code re-use context it already sent. Cache write tokens store that context, and cache read tokens re-use it at a fraction of the normal input price. "Cache saved" is what the cache-read tokens would have cost at the full input price minus what they cost at the cache-read price. The cache hit rate is the share of input served from cache.

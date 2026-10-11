@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-labelledby="t d">
+<title id="t">CCUsageX — see every prompt, token and dollar of your Claude Code usage</title>
+<desc id="d">Social preview card for CCUsageX, a free, open-source, local-only dashboard for Claude Code usage, with a miniature dashboard showing demo numbers: $87.42 API-equivalent cost, 1,284 requests, 96.1% cache hit rate, 182.4M tokens, cost by model and top tools. github.com/MHJoy99/CCUsageX</desc>
+<defs>
+<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b3df5"/><stop offset=".55" stop-color="#3a1d9e"/><stop offset="1" stop-color="#1b0b4a"/></linearGradient>
+<linearGradient id="gt" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5b3df5"/><stop offset="1" stop-color="#c13584"/></linearGradient>
+<radialGradient id="pink" cx="1" cy="1" r="1"><stop offset="0" stop-color="#c13584" stop-opacity=".55"/><stop offset="1" stop-color="#c13584" stop-opacity="0"/></radialGradient>
+<radialGradient id="glow" cx="0" cy="0" r="1"><stop offset="0" stop-color="#5b3df5" stop-opacity=".16"/><stop offset="1" stop-color="#5b3df5" stop-opacity="0"/></radialGradient>
+<filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0b0524" flood-opacity=".38"/></filter>
+<clipPath id="pc"><rect x="604" y="36" width="560" height="558" rx="30"/></clipPath>
+<style>
+text{font-family:-apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;fill:#1f2328}
+.serif{font-family:Georgia,'Iowan Old Style','Palatino Linotype','Times New Roman',serif}
+.mono{font-family:ui-monospace,'Cascadia Mono',Consolas,Menlo,monospace}
+.sec{fill:#59636e}.mut{fill:#818b98}
+.kpi{font-size:24px;font-weight:700}
+.kl{font-size:12.5px;fill:#59636e}
+.sh{font-size:12.5px;font-weight:700;letter-spacing:.07em;fill:#818b98}
+.row{font-size:14px;fill:#1f2328}
+.val{font-size:14px;font-weight:600;fill:#1f2328}
+</style>
+</defs>
+
+<!-- page -->
+<rect width="1200" height="630" fill="#f7f4ee"/>
+<rect width="1200" height="630" fill="url(#glow)" opacity="0"/>
+<rect x="0" y="0" width="10" height="630" fill="url(#g)"/>
+
+<!-- left column -->
+<rect x="64" y="64" width="44" height="44" rx="12" fill="url(#g)"/>
+<path d="M78 94 V84 M86 94 V76 M94 94 V87" stroke="#fff" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+<text x="124" y="92" font-size="15" font-weight="700" letter-spacing="1.6" style="fill:#5b3df5">FREE · OPEN SOURCE · LOCAL-ONLY</text>
+
+<text class="serif" x="60" y="236" font-size="96" font-weight="700" letter-spacing="-2" style="fill:#1b0b4a">CCUsage<tspan style="fill:url(#gt)">X</tspan></text>
+<rect x="66" y="262" width="96" height="6" rx="3" fill="url(#gt)"/>
+
+<text class="serif" x="64" y="336" font-size="36" style="fill:#1f2328">See every prompt, token</text>
+<text class="serif" x="64" y="381" font-size="36" style="fill:#1f2328">and dollar of your</text>
+<text class="serif" x="64" y="426" font-size="36" font-style="italic" style="fill:#5b3df5">Claude Code usage.</text>
+
+<g font-size="15" font-weight="600">
+<rect x="64" y="470" width="124" height="34" rx="17" fill="#fff" stroke="#d0d7de"/><text x="126" y="492" text-anchor="middle" style="fill:#1f2328">100% local</text>
+<rect x="198" y="470" width="168" height="34" rx="17" fill="#fff" stroke="#d0d7de"/><text x="282" y="492" text-anchor="middle" style="fill:#1f2328">Zero dependencies</text>
+<rect x="376" y="470" width="86" height="34" rx="17" fill="#fff" stroke="#d0d7de"/><text x="419" y="492" text-anchor="middle" style="fill:#1f2328">MIT</text>
+</g>
+
+<path d="M64 540 H540" stroke="#d9d3c7" stroke-width="1.5"/>
+<text class="mono" x="64" y="582" font-size="25" font-weight="700" style="fill:#1b0b4a">github.com/MHJoy99/CCUsageX</text>
+
+<!-- right: feature panel with mini dashboard -->
+<g clip-path="url(#pc)">
+<rect x="604" y="36" width="560" height="558" fill="url(#g)"/>
+<rect x="604" y="36" width="560" height="558" fill="url(#pink)"/>
+</g>
+
+<g filter="url(#sh)">
+<rect x="636" y="72" width="496" height="486" rx="18" fill="#ffffff"/>
+</g>
+<rect x="636.5" y="72.5" width="495" height="485" rx="18" fill="none" stroke="#d0d7de"/>
+
+<!-- header -->
+<circle cx="660" cy="98" r="5" fill="#e34948"/><circle cx="678" cy="98" r="5" fill="#eda100"/><circle cx="696" cy="98" r="5" fill="#1baf7a"/>
+<text class="serif" x="716" y="104" font-size="17" font-weight="700">CCUsageX</text>
+<rect x="1010" y="84" width="102" height="26" rx="13" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="1061" y="102" text-anchor="middle" font-size="13" font-weight="600" class="sec">Last 30 days</text>
+<path d="M636 122 H1132" stroke="#e6e9ed"/>
+
+<!-- KPIs -->
+<g>
+<rect x="656" y="136" width="109" height="68" rx="12" fill="#f6f8fa" stroke="#e1e5ea"/>
+<text class="kpi" x="668" y="167">$87.42</text><text class="kl" x="668" y="190">API-equivalent</text>
+<rect x="771" y="136" width="109" height="68" rx="12" fill="#f6f8fa" stroke="#e1e5ea"/>
+<text class="kpi" x="783" y="167">1,284</text><text class="kl" x="783" y="190">Requests</text>
+<rect x="887" y="136" width="109" height="68" rx="12" fill="#f6f8fa" stroke="#e1e5ea"/>
+<text class="kpi" x="899" y="167">96.1%</text><text class="kl" x="899" y="190">Cache hit rate</text>
+<rect x="1003" y="136" width="109" height="68" rx="12" fill="#f6f8fa" stroke="#e1e5ea"/>
+<text class="kpi" x="1015" y="167">182.4M</text><text class="kl" x="1015" y="190">Tokens</text>
+</g>
+
+<!-- donut: cost by model -->
+<text class="sh" x="656" y="236">COST BY MODEL</text>
+<g transform="translate(722 306) rotate(-90)" fill="none" stroke-width="22">
+<circle r="46" stroke="#2a78d6" stroke-dasharray="169.3 289.03" stroke-dashoffset="0"/>
+<circle r="46" stroke="#eb6834" stroke-dasharray="100.8 289.03" stroke-dashoffset="-172.3"/>
+<circle r="46" stroke="#1baf7a" stroke-dasharray="10 289.03" stroke-dashoffset="-276"/>
+</g>
+<text x="722" y="311" text-anchor="middle" font-size="17" font-weight="700">$87.42</text>
+<g>
+<rect x="812" y="262" width="12" height="12" rx="3" fill="#2a78d6"/><text class="row" x="832" y="273">claude-opus-5-5</text><text class="val" x="1112" y="273" text-anchor="end">$52.10</text>
+<rect x="812" y="292" width="12" height="12" rx="3" fill="#eb6834"/><text class="row" x="832" y="303">claude-sonnet-5-5</text><text class="val" x="1112" y="303" text-anchor="end">$31.40</text>
+<rect x="812" y="322" width="12" height="12" rx="3" fill="#1baf7a"/><text class="row" x="832" y="333">claude-haiku-5-5</text><text class="val" x="1112" y="333" text-anchor="end">$3.92</text>
+</g>
+
+<!-- ranked bars: top tools -->
+<path d="M656 372 H1112" stroke="#e6e9ed"/>
+<text class="sh" x="656" y="398">TOP TOOLS</text>
+<g>
+<text class="row" x="656" y="426">Bash</text><rect x="716" y="414" width="330" height="14" rx="4" fill="#2a78d6"/><text class="val" x="1112" y="426" text-anchor="end">1,820</text>
+<text class="row" x="656" y="452">Read</text><rect x="716" y="440" width="237" height="14" rx="4" fill="#eb6834"/><text class="val" x="1112" y="452" text-anchor="end">1,310</text>
+<text class="row" x="656" y="478">Edit</text><rect x="716" y="466" width="138" height="14" rx="4" fill="#1baf7a"/><text class="val" x="1112" y="478" text-anchor="end">760</text>
+<text class="row" x="656" y="504">Grep</text><rect x="716" y="492" width="74" height="14" rx="4" fill="#eda100"/><text class="val" x="1112" y="504" text-anchor="end">410</text>
+<text class="row" x="656" y="530">Write</text><rect x="716" y="518" width="40" height="14" rx="4" fill="#e87ba4"/><text class="val" x="1112" y="530" text-anchor="end">220</text>
+</g>
+</svg>

@@ -1,0 +1,251 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 520" width="1280" height="520" role="img" aria-labelledby="t d">
+<title id="t">CCUsageX</title>
+<desc id="d">CCUsageX: a free, local, open-source dashboard for Claude Code usage. See every prompt, token and dollar. An animated preview shows a live indicator, cost, request and cache-hit figures ticking up, ranked cost-per-prompt columns and a daily cost sparkline.</desc>
+<defs>
+<linearGradient id="pg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b3df5"/><stop offset=".55" stop-color="#3a1d9e"/><stop offset="1" stop-color="#1b0b4a"/></linearGradient>
+<radialGradient id="pk" cx=".9" cy=".02" r=".75"><stop offset="0" stop-color="#c13584" stop-opacity=".6"/><stop offset="1" stop-color="#c13584" stop-opacity="0"/></radialGradient>
+<radialGradient id="pv" cx=".1" cy=".95" r=".7"><stop offset="0" stop-color="#8a74ff" stop-opacity=".55"/><stop offset="1" stop-color="#8a74ff" stop-opacity="0"/></radialGradient>
+<radialGradient id="lg" cx=".1" cy=".1" r=".6"><stop offset="0" stop-color="#5b3df5" stop-opacity=".10"/><stop offset="1" stop-color="#5b3df5" stop-opacity="0"/></radialGradient>
+<linearGradient id="ar" x1="0" y1="0" x2="0" y2="1"><stop class="arA" offset="0"/><stop class="arB" offset="1"/></linearGradient>
+<clipPath id="cl"><rect x="0.5" y="0.5" width="1279" height="519" rx="28"/></clipPath>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0d0430" flood-opacity=".45"/></filter>
+</defs>
+<style>
+.bg{fill:#fff;stroke:#d0d7de}.bd{stroke:#d0d7de}.cardf{fill:#fff}.ink{fill:#1f2328}.sec{fill:#59636e}.mut{fill:#818b98}.hair{stroke:#e3e6ea}.hairf{fill:#e3e6ea}
+.chip{fill:#f6f8fa;stroke:#d0d7de}.good{fill:#0a8a0a}.acc{fill:#5b3df5}.accs{stroke:#5b3df5}.accf{fill:#5b3df5}.dot{fill:#0ca30c}.pillbg{fill:#1f2328}.pilltx{fill:#fff}
+.arA{stop-color:#5b3df5;stop-opacity:.28}.arB{stop-color:#5b3df5;stop-opacity:0}
+.s1{fill:#2a78d6}.s2{fill:#eb6834}.s3{fill:#1baf7a}.s4{fill:#eda100}.s5{fill:#e87ba4}.s6{fill:#6250d6}
+.serif{font-family:Georgia,'Iowan Old Style','Palatino Linotype','Times New Roman',serif}
+.sans{font-family:-apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif}
+.lbl{font:500 16px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif}
+.val{font:700 44px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.sub{font:500 15px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif}
+.cap{font:500 15px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif}
+.num{font:650 15px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;font-variant-numeric:tabular-nums}
+.hd{font:650 17px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif}
+.eyebrow{font:650 15px -apple-system,'Segoe UI',system-ui,Roboto,Helvetica,Arial,sans-serif;letter-spacing:2.2px}
+@media (prefers-color-scheme:dark){
+.bg{fill:#0d1117;stroke:#30363d}.bd{stroke:#30363d}.cardf{fill:#161b22}.ink{fill:#e6edf3}.sec{fill:#9198a1}.mut{fill:#7d8590}.hair{stroke:#30363d}.hairf{fill:#30363d}
+.chip{fill:#0d1117;stroke:#30363d}.good{fill:#3fb950}.acc{fill:#a594ff}.accs{stroke:#a594ff}.accf{fill:#a594ff}.dot{fill:#3fb950}.pillbg{fill:#e6edf3}.pilltx{fill:#0d1117}
+.arA{stop-color:#a594ff;stop-opacity:.34}.arB{stop-color:#a594ff;stop-opacity:0}
+.s1{fill:#3987e5}.s2{fill:#d95926}.s3{fill:#199e70}.s4{fill:#c98500}.s5{fill:#d55181}.s6{fill:#9085e9}
+}
+.k1f0{opacity:0;animation:k1f0 10s linear infinite}
+.k1f1{opacity:0;animation:k1f1 10s linear infinite}
+.k1f2{opacity:0;animation:k1f2 10s linear infinite}
+.k1f3{opacity:0;animation:k1f3 10s linear infinite}
+.k1f4{opacity:0;animation:k1f4 10s linear infinite}
+.k1f5{opacity:0;animation:k1f5 10s linear infinite}
+.k1f6{opacity:0;animation:k1f6 10s linear infinite}
+.k1f7{opacity:0;animation:k1f7 10s linear infinite}
+.k1f8{opacity:0;animation:k1f8 10s linear infinite}
+.k1f9{opacity:1;animation:k1f9 10s linear infinite}
+.k2f0{opacity:0;animation:k2f0 10s linear infinite}
+.k2f1{opacity:0;animation:k2f1 10s linear infinite}
+.k2f2{opacity:0;animation:k2f2 10s linear infinite}
+.k2f3{opacity:0;animation:k2f3 10s linear infinite}
+.k2f4{opacity:0;animation:k2f4 10s linear infinite}
+.k2f5{opacity:0;animation:k2f5 10s linear infinite}
+.k2f6{opacity:0;animation:k2f6 10s linear infinite}
+.k2f7{opacity:0;animation:k2f7 10s linear infinite}
+.k2f8{opacity:0;animation:k2f8 10s linear infinite}
+.k2f9{opacity:1;animation:k2f9 10s linear infinite}
+.k3f0{opacity:0;animation:k3f0 10s linear infinite}
+.k3f1{opacity:0;animation:k3f1 10s linear infinite}
+.k3f2{opacity:0;animation:k3f2 10s linear infinite}
+.k3f3{opacity:0;animation:k3f3 10s linear infinite}
+.k3f4{opacity:0;animation:k3f4 10s linear infinite}
+.k3f5{opacity:0;animation:k3f5 10s linear infinite}
+.k3f6{opacity:0;animation:k3f6 10s linear infinite}
+.k3f7{opacity:0;animation:k3f7 10s linear infinite}
+.k3f8{opacity:0;animation:k3f8 10s linear infinite}
+.k3f9{opacity:1;animation:k3f9 10s linear infinite}
+.bar0{transform-box:fill-box;transform-origin:50% 100%;animation:bar0 10s linear infinite}
+.lab0{animation:lab0 10s linear infinite}
+.bar1{transform-box:fill-box;transform-origin:50% 100%;animation:bar1 10s linear infinite}
+.lab1{animation:lab1 10s linear infinite}
+.bar2{transform-box:fill-box;transform-origin:50% 100%;animation:bar2 10s linear infinite}
+.lab2{animation:lab2 10s linear infinite}
+.bar3{transform-box:fill-box;transform-origin:50% 100%;animation:bar3 10s linear infinite}
+.lab3{animation:lab3 10s linear infinite}
+.bar4{transform-box:fill-box;transform-origin:50% 100%;animation:bar4 10s linear infinite}
+.lab4{animation:lab4 10s linear infinite}
+.bar5{transform-box:fill-box;transform-origin:50% 100%;animation:bar5 10s linear infinite}
+.lab5{animation:lab5 10s linear infinite}
+.draw{stroke-dasharray:1;animation:draw 10s linear infinite}
+.areain{animation:areain 10s linear infinite}
+.dotin{transform-box:fill-box;transform-origin:center;animation:dotin 10s linear infinite}
+.sh0{transform-box:fill-box;transform-origin:0 50%;animation:sh0 10s linear infinite}
+.sh1{transform-box:fill-box;transform-origin:0 50%;animation:sh1 10s linear infinite}
+.sh2{transform-box:fill-box;transform-origin:0 50%;animation:sh2 10s linear infinite}
+.grp{animation:grp 10s linear infinite}
+.ring{transform-box:fill-box;transform-origin:center;animation:pulse 2s ease-out infinite}
+.glow{animation:glow 6s ease-in-out infinite}
+@keyframes k1f0{0%{opacity:1}5%{opacity:1}5.2%{opacity:0}100%{opacity:0}}
+@keyframes k1f1{0%{opacity:0}5%{opacity:0}5.2%{opacity:1}7.67%{opacity:1}7.87%{opacity:0}100%{opacity:0}}
+@keyframes k1f2{0%{opacity:0}7.67%{opacity:0}7.87%{opacity:1}10.33%{opacity:1}10.53%{opacity:0}100%{opacity:0}}
+@keyframes k1f3{0%{opacity:0}10.33%{opacity:0}10.53%{opacity:1}13%{opacity:1}13.2%{opacity:0}100%{opacity:0}}
+@keyframes k1f4{0%{opacity:0}13%{opacity:0}13.2%{opacity:1}15.67%{opacity:1}15.87%{opacity:0}100%{opacity:0}}
+@keyframes k1f5{0%{opacity:0}15.67%{opacity:0}15.87%{opacity:1}18.33%{opacity:1}18.53%{opacity:0}100%{opacity:0}}
+@keyframes k1f6{0%{opacity:0}18.33%{opacity:0}18.53%{opacity:1}21%{opacity:1}21.2%{opacity:0}100%{opacity:0}}
+@keyframes k1f7{0%{opacity:0}21%{opacity:0}21.2%{opacity:1}23.67%{opacity:1}23.87%{opacity:0}100%{opacity:0}}
+@keyframes k1f8{0%{opacity:0}23.67%{opacity:0}23.87%{opacity:1}26.33%{opacity:1}26.53%{opacity:0}100%{opacity:0}}
+@keyframes k1f9{0%{opacity:0}26.33%{opacity:0}26.53%{opacity:1}100%{opacity:1}}
+@keyframes k2f0{0%{opacity:1}6.2%{opacity:1}6.4%{opacity:0}100%{opacity:0}}
+@keyframes k2f1{0%{opacity:0}6.2%{opacity:0}6.4%{opacity:1}8.87%{opacity:1}9.07%{opacity:0}100%{opacity:0}}
+@keyframes k2f2{0%{opacity:0}8.87%{opacity:0}9.07%{opacity:1}11.53%{opacity:1}11.73%{opacity:0}100%{opacity:0}}
+@keyframes k2f3{0%{opacity:0}11.53%{opacity:0}11.73%{opacity:1}14.2%{opacity:1}14.4%{opacity:0}100%{opacity:0}}
+@keyframes k2f4{0%{opacity:0}14.2%{opacity:0}14.4%{opacity:1}16.87%{opacity:1}17.07%{opacity:0}100%{opacity:0}}
+@keyframes k2f5{0%{opacity:0}16.87%{opacity:0}17.07%{opacity:1}19.53%{opacity:1}19.73%{opacity:0}100%{opacity:0}}
+@keyframes k2f6{0%{opacity:0}19.53%{opacity:0}19.73%{opacity:1}22.2%{opacity:1}22.4%{opacity:0}100%{opacity:0}}
+@keyframes k2f7{0%{opacity:0}22.2%{opacity:0}22.4%{opacity:1}24.87%{opacity:1}25.07%{opacity:0}100%{opacity:0}}
+@keyframes k2f8{0%{opacity:0}24.87%{opacity:0}25.07%{opacity:1}27.53%{opacity:1}27.73%{opacity:0}100%{opacity:0}}
+@keyframes k2f9{0%{opacity:0}27.53%{opacity:0}27.73%{opacity:1}100%{opacity:1}}
+@keyframes k3f0{0%{opacity:1}7.4%{opacity:1}7.6%{opacity:0}100%{opacity:0}}
+@keyframes k3f1{0%{opacity:0}7.4%{opacity:0}7.6%{opacity:1}10.07%{opacity:1}10.27%{opacity:0}100%{opacity:0}}
+@keyframes k3f2{0%{opacity:0}10.07%{opacity:0}10.27%{opacity:1}12.73%{opacity:1}12.93%{opacity:0}100%{opacity:0}}
+@keyframes k3f3{0%{opacity:0}12.73%{opacity:0}12.93%{opacity:1}15.4%{opacity:1}15.6%{opacity:0}100%{opacity:0}}
+@keyframes k3f4{0%{opacity:0}15.4%{opacity:0}15.6%{opacity:1}18.07%{opacity:1}18.27%{opacity:0}100%{opacity:0}}
+@keyframes k3f5{0%{opacity:0}18.07%{opacity:0}18.27%{opacity:1}20.73%{opacity:1}20.93%{opacity:0}100%{opacity:0}}
+@keyframes k3f6{0%{opacity:0}20.73%{opacity:0}20.93%{opacity:1}23.4%{opacity:1}23.6%{opacity:0}100%{opacity:0}}
+@keyframes k3f7{0%{opacity:0}23.4%{opacity:0}23.6%{opacity:1}26.07%{opacity:1}26.27%{opacity:0}100%{opacity:0}}
+@keyframes k3f8{0%{opacity:0}26.07%{opacity:0}26.27%{opacity:1}28.73%{opacity:1}28.93%{opacity:0}100%{opacity:0}}
+@keyframes k3f9{0%{opacity:0}28.73%{opacity:0}28.93%{opacity:1}100%{opacity:1}}
+@keyframes bar0{0%,5.5%{transform:scaleY(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}14.5%,100%{transform:scaleY(1)}}
+@keyframes lab0{0%,12%{opacity:0}16.5%,100%{opacity:1}}
+@keyframes bar1{0%,7.1%{transform:scaleY(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}16.1%,100%{transform:scaleY(1)}}
+@keyframes lab1{0%,13.6%{opacity:0}18.1%,100%{opacity:1}}
+@keyframes bar2{0%,8.7%{transform:scaleY(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}17.7%,100%{transform:scaleY(1)}}
+@keyframes lab2{0%,15.2%{opacity:0}19.7%,100%{opacity:1}}
+@keyframes bar3{0%,10.3%{transform:scaleY(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}19.3%,100%{transform:scaleY(1)}}
+@keyframes lab3{0%,16.8%{opacity:0}21.3%,100%{opacity:1}}
+@keyframes bar4{0%,11.9%{transform:scaleY(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}20.9%,100%{transform:scaleY(1)}}
+@keyframes lab4{0%,18.4%{opacity:0}22.9%,100%{opacity:1}}
+@keyframes bar5{0%,13.5%{transform:scaleY(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}22.5%,100%{transform:scaleY(1)}}
+@keyframes lab5{0%,20%{opacity:0}24.5%,100%{opacity:1}}
+@keyframes draw{0%,10%{stroke-dashoffset:1;animation-timing-function:cubic-bezier(.4,.1,.3,1)}32%,100%{stroke-dashoffset:0}}
+@keyframes areain{0%,16%{opacity:0}34%,100%{opacity:1}}
+@keyframes dotin{0%,30%{opacity:0;transform:scale(.2)}35%,100%{opacity:1;transform:scale(1)}}
+@keyframes sh0{0%,22%{transform:scaleX(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}30%,100%{transform:scaleX(1)}}
+@keyframes sh1{0%,24.5%{transform:scaleX(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}32.5%,100%{transform:scaleX(1)}}
+@keyframes sh2{0%,27%{transform:scaleX(0);animation-timing-function:cubic-bezier(.2,.85,.25,1)}35%,100%{transform:scaleX(1)}}
+@keyframes grp{0%{opacity:0}3%{opacity:1}92%{opacity:1}97.5%,100%{opacity:0}}
+@keyframes pulse{0%{transform:scale(1);opacity:.55}70%,100%{transform:scale(3.2);opacity:0}}
+@keyframes glow{0%,100%{opacity:.55}50%{opacity:.9}}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<g clip-path="url(#cl)">
+<rect class="bg" x="0.5" y="0.5" width="1279" height="519" rx="28"/>
+<rect x="0" y="0" width="700" height="520" fill="url(#lg)"/>
+<!-- accent panel -->
+<rect x="568" y="16" width="696" height="488" rx="26" fill="url(#pg)"/>
+<rect x="568" y="16" width="696" height="488" rx="26" fill="url(#pk)" class="glow"/>
+<rect x="568" y="16" width="696" height="488" rx="26" fill="url(#pv)"/>
+<g stroke="#fff" stroke-opacity=".07" fill="none"><circle cx="1180" cy="40" r="150"/><circle cx="1180" cy="40" r="230"/><circle cx="1180" cy="40" r="310"/><circle cx="640" cy="500" r="120"/><circle cx="640" cy="500" r="200"/></g>
+<rect x="568.5" y="16.5" width="695" height="487" rx="25.5" fill="none" stroke="#fff" stroke-opacity=".16"/>
+</g>
+<rect class="bd" x="0.5" y="0.5" width="1279" height="519" rx="28" fill="none"/>
+
+<!-- left column -->
+<g>
+<rect class="chip" x="72" y="84" width="404" height="38" rx="19"/>
+<circle class="accf" cx="96" cy="103" r="4.5"/>
+<text class="eyebrow acc" x="112" y="109" font-size="15">LOCAL · ZERO-DEPENDENCY · OPEN SOURCE</text>
+<text class="serif ink" x="68" y="246" font-size="104" textLength="458" lengthAdjust="spacingAndGlyphs" style="letter-spacing:-2px">CCUsage<tspan class="acc">X</tspan></text>
+<text class="serif ink" x="72" y="312" font-size="30">See every prompt, token and</text>
+<text class="serif ink" x="72" y="352" font-size="30">dollar of your <tspan font-style="italic" class="acc">Claude Code</tspan> usage.</text>
+<rect class="pillbg" x="72" y="404" width="190" height="52" rx="26"/>
+<path class="pilltx" d="M104 419L106.7 426.28L114.46 426.6L108.37 431.42L110.47 438.9L104 434.6L97.53 438.9L99.63 431.42L93.54 426.6L101.3 426.28Z"/>
+<text class="pilltx sans" x="124" y="437" font-size="18" font-weight="650">Star on GitHub</text>
+<text class="sec sans" x="284" y="437" font-size="16" font-weight="500">MIT · Node 18+ · 127.0.0.1 only</text>
+</g>
+
+<!-- dashboard card -->
+<g filter="url(#sh)"><rect class="cardf" x="600" y="48" width="632" height="424" rx="20"/></g>
+<rect class="hair" fill="none" x="600.5" y="48.5" width="631" height="423" rx="19.5"/>
+<!-- header -->
+<circle class="dot ring" cx="640" cy="80" r="5.5"/>
+<circle class="dot" cx="640" cy="80" r="5.5"/>
+<text class="hd ink sans" x="660" y="86">Live · active now</text>
+<rect class="chip" x="1068" y="63" width="136" height="32" rx="16"/>
+<text class="cap sec" x="1136" y="84" text-anchor="middle">Last 30 days</text>
+<path class="hair" d="M628 112H1204" fill="none"/>
+<g class="grp">
+<text class="sec lbl" x="628" y="146">API-equivalent cost</text>
+<text class="val ink k1f0" x="628" y="194">$0.00</text>
+<text class="val ink k1f1" x="628" y="194">$26.02</text>
+<text class="val ink k1f2" x="628" y="194">$46.29</text>
+<text class="val ink k1f3" x="628" y="194">$61.52</text>
+<text class="val ink k1f4" x="628" y="194">$72.43</text>
+<text class="val ink k1f5" x="628" y="194">$79.75</text>
+<text class="val ink k1f6" x="628" y="194">$84.18</text>
+<text class="val ink k1f7" x="628" y="194">$86.46</text>
+<text class="val ink k1f8" x="628" y="194">$87.30</text>
+<text class="val ink k1f9" x="628" y="194">$87.42</text>
+<text class="sub mut" x="628" y="222">across 3 models</text>
+<text class="sec lbl" x="824" y="146">Requests</text>
+<text class="val ink k2f0" x="824" y="194">0</text>
+<text class="val ink k2f1" x="824" y="194">382</text>
+<text class="val ink k2f2" x="824" y="194">680</text>
+<text class="val ink k2f3" x="824" y="194">904</text>
+<text class="val ink k2f4" x="824" y="194">1,064</text>
+<text class="val ink k2f5" x="824" y="194">1,171</text>
+<text class="val ink k2f6" x="824" y="194">1,236</text>
+<text class="val ink k2f7" x="824" y="194">1,270</text>
+<text class="val ink k2f8" x="824" y="194">1,282</text>
+<text class="val ink k2f9" x="824" y="194">1,284</text>
+<text class="sub mut" x="824" y="222">96 prompts</text>
+<text class="sec lbl" x="1020" y="146">Cache hit rate</text>
+<text class="val ink k3f0" x="1020" y="194">0.0%</text>
+<text class="val ink k3f1" x="1020" y="194">28.6%</text>
+<text class="val ink k3f2" x="1020" y="194">50.9%</text>
+<text class="val ink k3f3" x="1020" y="194">67.6%</text>
+<text class="val ink k3f4" x="1020" y="194">79.6%</text>
+<text class="val ink k3f5" x="1020" y="194">87.7%</text>
+<text class="val ink k3f6" x="1020" y="194">92.5%</text>
+<text class="val ink k3f7" x="1020" y="194">95.0%</text>
+<text class="val ink k3f8" x="1020" y="194">96.0%</text>
+<text class="val ink k3f9" x="1020" y="194">96.1%</text>
+<text class="sub good" x="1020" y="222">$612.80 saved</text>
+
+<path class="hair" d="M628 242H1204" fill="none"/>
+<text class="hd ink sans" x="628" y="274">Cost per prompt</text>
+<text class="hd ink sans" x="1008" y="274">Daily cost</text>
+<path class="hair" d="M984 258V448" fill="none"/>
+<path class="hair" d="M628 424H962" fill="none"/>
+<path class="bar0 s1" d="M633 424V316Q633 312 637 312H669Q673 312 673 316V424Z"/>
+<text class="num ink lab0" x="653" y="303" text-anchor="middle">$4.12</text>
+<text class="cap sec" x="653" y="448" text-anchor="middle">Auth</text>
+<path class="bar1 s2" d="M691 424V356.23Q691 352.23 695 352.23H727Q731 352.23 731 356.23V424Z"/>
+<text class="num ink lab1" x="711" y="343.23" text-anchor="middle">$2.64</text>
+<text class="cap sec" x="711" y="448" text-anchor="middle">Charts</text>
+<path class="bar2 s3" d="M749 424V370.91Q749 366.91 753 366.91H785Q789 366.91 789 370.91V424Z"/>
+<text class="num ink lab2" x="769" y="357.91" text-anchor="middle">$2.10</text>
+<text class="cap sec" x="769" y="448" text-anchor="middle">Readme</text>
+<path class="bar3 s4" d="M807 424V375.81Q807 371.81 811 371.81H843Q847 371.81 847 375.81V424Z"/>
+<text class="num ink lab3" x="827" y="362.81" text-anchor="middle">$1.92</text>
+<text class="cap sec" x="827" y="448" text-anchor="middle">Tests</text>
+<path class="bar4 s5" d="M865 424V405.17Q865 401.17 869 401.17H901Q905 401.17 905 405.17V424Z"/>
+<text class="num ink lab4" x="885" y="392.17" text-anchor="middle">$0.84</text>
+<text class="cap sec" x="885" y="448" text-anchor="middle">Store</text>
+<path class="bar5 s6" d="M923 424V416.85Q923 412.85 927 412.85H959Q963 412.85 963 416.85V424Z"/>
+<text class="num ink lab5" x="943" y="403.85" text-anchor="middle">$0.41</text>
+<text class="cap sec" x="943" y="448" text-anchor="middle">Scan</text>
+
+<g>
+<path class="hair" d="M1008 374H1204M1008 332H1204" fill="none" stroke-dasharray="2 4"/>
+<path class="areain" d="M1008 364.06C1009.13 362.67 1012.51 357.07 1014.76 355.7C1017.01 354.34 1019.26 355.69 1021.52 355.89C1023.77 356.08 1026.02 357.49 1028.28 356.88C1030.53 356.27 1032.78 354.2 1035.03 352.21C1037.29 350.21 1039.54 346.27 1041.79 344.93C1044.05 343.58 1046.3 342.65 1048.55 344.14C1050.8 345.62 1053.06 349.96 1055.31 353.82C1057.56 357.68 1059.82 363.93 1062.07 367.29C1064.32 370.66 1066.57 373.43 1068.83 374C1071.08 374.57 1073.33 372.34 1075.59 370.73C1077.84 369.11 1080.09 365.65 1082.34 364.31C1084.6 362.97 1086.85 362.55 1089.1 362.71C1091.36 362.86 1093.61 365.1 1095.86 365.22C1098.11 365.35 1100.37 365.69 1102.62 363.48C1104.87 361.27 1107.13 356.62 1109.38 351.96C1111.63 347.3 1113.89 340.04 1116.14 335.54C1118.39 331.04 1120.64 326.67 1122.9 324.95C1125.15 323.23 1127.4 324.37 1129.66 325.22C1131.91 326.06 1134.16 329.83 1136.41 330C1138.67 330.17 1140.92 329.91 1143.17 326.23C1145.43 322.55 1147.68 312.96 1149.93 307.92C1152.18 302.88 1154.44 295.12 1156.69 296C1158.94 296.88 1161.2 305.76 1163.45 313.22C1165.7 320.68 1167.95 333.87 1170.21 340.76C1172.46 347.65 1174.71 352.66 1176.97 354.58C1179.22 356.49 1181.47 354.37 1183.72 352.24C1185.98 350.12 1188.23 344.91 1190.48 341.83C1192.74 338.75 1194.99 335.39 1197.24 333.78C1199.49 332.17 1202.87 332.44 1204 332.17L1204 374L1008 374Z" fill="url(#ar)"/>
+<path class="draw accs" d="M1008 364.06C1009.13 362.67 1012.51 357.07 1014.76 355.7C1017.01 354.34 1019.26 355.69 1021.52 355.89C1023.77 356.08 1026.02 357.49 1028.28 356.88C1030.53 356.27 1032.78 354.2 1035.03 352.21C1037.29 350.21 1039.54 346.27 1041.79 344.93C1044.05 343.58 1046.3 342.65 1048.55 344.14C1050.8 345.62 1053.06 349.96 1055.31 353.82C1057.56 357.68 1059.82 363.93 1062.07 367.29C1064.32 370.66 1066.57 373.43 1068.83 374C1071.08 374.57 1073.33 372.34 1075.59 370.73C1077.84 369.11 1080.09 365.65 1082.34 364.31C1084.6 362.97 1086.85 362.55 1089.1 362.71C1091.36 362.86 1093.61 365.1 1095.86 365.22C1098.11 365.35 1100.37 365.69 1102.62 363.48C1104.87 361.27 1107.13 356.62 1109.38 351.96C1111.63 347.3 1113.89 340.04 1116.14 335.54C1118.39 331.04 1120.64 326.67 1122.9 324.95C1125.15 323.23 1127.4 324.37 1129.66 325.22C1131.91 326.06 1134.16 329.83 1136.41 330C1138.67 330.17 1140.92 329.91 1143.17 326.23C1145.43 322.55 1147.68 312.96 1149.93 307.92C1152.18 302.88 1154.44 295.12 1156.69 296C1158.94 296.88 1161.2 305.76 1163.45 313.22C1165.7 320.68 1167.95 333.87 1170.21 340.76C1172.46 347.65 1174.71 352.66 1176.97 354.58C1179.22 356.49 1181.47 354.37 1183.72 352.24C1185.98 350.12 1188.23 344.91 1190.48 341.83C1192.74 338.75 1194.99 335.39 1197.24 333.78C1199.49 332.17 1202.87 332.44 1204 332.17" pathLength="1" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<g class="dotin"><circle class="accf" cx="1204" cy="332.17" r="9" opacity=".2"/><circle class="accf" cx="1204" cy="332.17" r="4.5"/></g>
+</g>
+<rect class="sh0 s1" x="1008" y="402" width="114.43" height="12" rx="3"/>
+<rect class="sh1 s2" x="1124.43" y="402" width="68.96" height="12" rx="3"/>
+<rect class="sh2 s3" x="1195.39" y="402" width="8.61" height="12" rx="3"/>
+
+<circle class="s1" cx="1013" cy="437" r="5"/><text class="cap sec" x="1023" y="443">Opus</text>
+<circle class="s2" cx="1073" cy="437" r="5"/><text class="cap sec" x="1083" y="443">Sonnet</text>
+<circle class="s3" cx="1153" cy="437" r="5"/><text class="cap sec" x="1163" y="443">Haiku</text>
+
+</g>
+</svg>
