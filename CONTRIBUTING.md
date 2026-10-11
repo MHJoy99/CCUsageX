@@ -28,7 +28,7 @@ On Windows PowerShell, use `$env:CLAUDE_CONFIG_DIR = 'C:\path\to\fixture'` and `
 
 ## Checks
 
-Run these before you open a pull request. CI runs the same steps on Ubuntu, Windows and macOS with Node 18, 20 and 22.
+Run these before you open a pull request. There is no CI: tests run locally on your machine (Node 18+ on Windows, macOS or Linux).
 
 ```sh
 node --check server.js public/app.js public/charts.js

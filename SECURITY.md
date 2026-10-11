@@ -42,8 +42,8 @@ does not leave the machine, and is not reachable from other machines or from oth
   get a leading apostrophe.
 - **Stops only its own server.** The launcher stops only the process whose PID it recorded, after checking that its
   command line is this project's `server.js`.
-- **Keeps dependencies at zero.** There is no third-party package code to audit. Dependabot keeps the GitHub Actions
-  used by CI up to date.
+- **Keeps dependencies at zero.** There is no third-party package code to audit, and the repository runs no CI
+  workflows or automated bots.
 
 ### What it does not do
 

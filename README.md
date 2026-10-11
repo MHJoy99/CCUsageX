@@ -9,7 +9,6 @@ A local, zero-dependency web dashboard that reads Claude Code's own logs and sho
 cache hits, response times, tools, sessions and the API-equivalent cost of each prompt you type.
 
 [![Live demo](https://img.shields.io/badge/live%20demo-open-5b3df5?style=flat-square)](https://mhjoy99.github.io/CCUsageX/demo/)
-[![Tests](https://img.shields.io/github/actions/workflow/status/MHJoy99/CCUsageX/test.yml?branch=main&style=flat-square&label=tests)](https://github.com/MHJoy99/CCUsageX/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2a78d6?style=flat-square)](LICENSE)
 ![Node 18+](https://img.shields.io/badge/node-%E2%89%A518-1baf7a?style=flat-square)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-1baf7a?style=flat-square)

@@ -598,7 +598,7 @@ CCUsageX.ps1              Windows launcher: start, stop, status, restart
 Open-CCUsageX.cmd         double-click wrapper: start and open the window
 Close-CCUsageX.cmd        double-click wrapper: stop the server and close the window
 docs/                     this file and FAQ.md
-.github/                  CI workflow, issue forms, pull request template, Dependabot
+.github/                  issue forms and pull request template (no CI workflows)
 ```
 
 Runtime files, outside the repository:
