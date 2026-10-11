@@ -16,8 +16,10 @@
     document.documentElement.setAttribute('data-theme', t);
   })();
 </script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%235b3df5'/><stop offset='1' stop-color='%231b0b4a'/></linearGradient></defs><rect width='32' height='32' rx='8' fill='url(%23g)'/><path d='M9 24v-8M14 24V8M19 24v-6M24 24V13' stroke='white' stroke-width='3' stroke-linecap='round' fill='none'/></svg>">
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="live.css">
+<link rel="stylesheet" href="limits.css">
 </head>
 <body>
 <div class="demo-banner" role="note">
@@ -61,6 +63,7 @@
       Reset
     </button>
     <span class="spacer"></span>
+    <button type="button" class="lim-pill" id="lim-pill" data-limits-pill aria-label="Plan limits loading" title="Plan limits"><span class="lim-pi lim-pi-skel"><i class="mr"></i><b>Limits</b><span class="n">…</span></span></button>
     <div class="live" id="live" data-state="idle" role="status" aria-live="polite">
       <span class="dot" aria-hidden="true"></span>
       <span id="live-state">Connecting…</span>
@@ -108,6 +111,8 @@
 
       <div class="kpi-strip rv" id="kpis" style="--d:80ms" aria-label="Key figures"></div>
       <div class="strip-note" id="strip-note" hidden></div>
+
+      <section class="lim" id="lim-overview" data-limits="overview"></section>
 
       <div class="trio" id="trio">
         <article class="tcard rv" id="t-cost" style="--d:0ms">
@@ -249,6 +254,7 @@
 
 <script src="api.js"></script>
 <script src="charts.js"></script>
+<script src="limits.js"></script>
 <script src="live.js"></script>
 <script src="app.js"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "a2f7f3d589ae4c8688a646d54918b0e7"}'></script>

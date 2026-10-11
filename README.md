@@ -56,6 +56,8 @@ Nothing is uploaded anywhere, and it needs nothing but Node.js 18+.
   cache-write multipliers, Haiku long-context tier and fast mode. Useful on a Pro/Max subscription to see what your
   usage is worth.
 - **Cache savings.** Cache hit rate and the dollars caching saved you.
+- **Plan usage limits.** Your 5-hour session and 7-day weekly limits on Pro and Max, with reset times, a pace
+  projection and a small history. Read from Claude Code's status line; see [Plan usage limits](#plan-usage-limits).
 - **Models, effort, speed.** Output tokens per second, response time (typical and slowest 5%), effort levels and
   Claude Code versions.
 - **Tools, sessions, projects.** Which tools ran how often, per-session and per-project breakdowns.
@@ -100,6 +102,43 @@ Double-click **`Open-CCUsageX.cmd`**. It starts the server hidden and opens the 
 `node server.js`, then open http://127.0.0.1:3020. To keep it running in the background, use your usual tool
 (`launchd`, `systemd --user`, `pm2`, `tmux`).
 
+## Plan usage limits
+
+<img src="assets/plan-limits.svg" alt="Example plan limits: session 5-hour window 23% used, resets in 2h 14m; weekly 7-day window 41% used, resets Thursday" width="100%">
+
+CCUsageX can show how much of your Claude subscription limit you have used: the **5-hour session** window and the
+**7-day weekly** window, with when each one resets. Claude Code reports these two percentages to its status line, so
+CCUsageX reads them from there. It does not log in, does not call any Claude endpoint and does not read your
+credentials. Set it up once, from the repository folder:
+
+```bash
+npm run statusline:install        # or: node scripts/install-statusline.js --install
+node scripts/install-statusline.js --status
+npm run statusline:uninstall      # restores the status line you had before
+```
+
+The installer edits only the `statusLine` entry of your Claude Code `settings.json` (`~/.claude/settings.json`, or
+`$CLAUDE_CONFIG_DIR/settings.json`):
+
+- It copies the file to `settings.json.bak-<YYYYMMDD-HHMMSS>` first, and leaves every other setting as it was.
+- If you already have a status line, it keeps running. CCUsageX runs it and shows its output, and saves your previous
+  setting under `ccusagexPreviousStatusLine`, so `--uninstall` puts it back exactly.
+- An invalid `settings.json` stops the installer before anything is written.
+- `--dry-run` shows the change without writing, and `--config-dir <dir>` picks another Claude Code folder.
+
+Things to know:
+
+- **Pro and Max only.** Claude Code reports these limits for claude.ai subscriptions. API-key and other plans show
+  no limit data.
+- **Appears after the first reply.** Claude Code sends the numbers with its first response in a session, so the
+  dashboard shows the setup state until you send a message.
+- **Overall windows only.** Claude Code does not report separate Opus or Sonnet limits, so CCUsageX does not show them.
+- **Local data only.** Snapshots are written to `~/.ccusagex/limits/` (or `$CCU_DATA_DIR/limits/`). Nothing is sent
+  anywhere. The status line runs on each reply and about every 30 seconds. It is built to finish in under 100 ms.
+
+Details, including the data fields and the burn-rate projection, are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#plan-usage-limits).
+
 ## Screenshots
 
 <div align="center">
@@ -137,7 +176,7 @@ Full details, including the record format, dedupe rules and the HTTP API, are in
 | Response time and output speed by model | ✅ | — | Burn rate | — |
 | Keeps history after Claude Code's 30-day cleanup | ✅ | — | — | — |
 | Other coding agents (Codex, OpenCode, …) | — | ✅ | — | — |
-| Live plan-limit / quota tracking | — | Partial | ✅ | — |
+| Live plan-limit / quota tracking | ✅ | Partial | ✅ | — |
 | Dependencies | None | npm package | Python package | Python package |
 
 These tools work well together. ccusage is excellent for quick terminal reports across many agents, and the
@@ -163,6 +202,8 @@ Environment variables: `PORT`, `CLAUDE_CONFIG_DIR` (where Claude Code keeps its 
 - Makes **no outbound network requests**, has no telemetry and no dependencies.
 - Reads `~/.claude` **read-only**. Its own copy, which includes your prompt text, is stored in `~/.ccusagex/`.
   Delete that folder to remove it.
+- The optional plan-limits status line writes only its snapshots under `~/.ccusagex/limits/`. Its installer edits
+  only the `statusLine` entry in Claude Code's `settings.json`, after making a backup.
 
 ## FAQ
 

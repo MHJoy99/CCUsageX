@@ -410,12 +410,64 @@
     };
     window.EventSource.CONNECTING = 0; window.EventSource.OPEN = 1; window.EventSource.CLOSED = 2;
   })();
+
+  /* ================================================================== Plan limits simulator (fictional)
+     Same shape as server.js GET /api/limits (see .team/LIMITS.md). Scenario via ?limits=ok|high|limit|stale|nosub|none|reset|5h
+     (default "ok"): usage creeps up while the page is open, the reset countdowns are real. */
+  var Lim = (function () {
+    var H = 3600000, T0 = Date.now();
+    var q = ''; try { q = new URLSearchParams(location.search).get('limits') || 'ok'; } catch (e) { q = 'ok'; }
+    var SC = {
+      ok:    { f: { used: 62, left: 2.24, burn: 13.5 }, s: { used: 41, left: 76.5, burn: 0.46 } },
+      high:  { f: { used: 92, left: 1.35, burn: 21 },   s: { used: 76, left: 49, burn: 0.62 } },
+      limit: { f: { used: 100, left: 0.82, burn: 0 },   s: { used: 83, left: 30, burn: 0.55 } },
+      stale: { f: { used: 62, left: 2.24, burn: 13.5 }, s: { used: 41, left: 76.5, burn: 0.46 }, ageMin: 23 },
+      '5h':  { f: { used: 29, left: 3.6, burn: 6.2 } },
+      reset: { resetOnly: true }
+    };
+    function curve(used, startT, nowT, steps) { // monotonic fictional history ending at `used`
+      var out = [], span = Math.max(1, nowT - startT), n = Math.max(2, Math.min(steps, Math.round(span / 300000)));
+      for (var i = 0; i <= n; i++) {
+        var x = i / n, p = used * (0.12 * x + 0.88 * Math.pow(x, 1.35) * (0.9 + 0.1 * Math.sin(i * 1.7)));
+        out.push({ t: Math.round(startT + span * x), p: Math.round(Math.min(used, p) * 10) / 10 });
+      }
+      out[out.length - 1].p = used;
+      return out;
+    }
+    function win(def, ms, now, upd, elapsedBias) {
+      var used = Math.min(100, Math.round((def.used + (now - T0) / 60000 * (ms < 24 * H ? 0.12 : 0.004)) * 10) / 10);
+      var resetsAt = Math.round(T0 + def.left * H), start = resetsAt - ms;
+      var hist = curve(used, start + Math.min(ms * 0.35, Math.max(0, now - start)) * (ms < 24 * H ? 0.2 : 0.12), upd, ms < 24 * H ? 36 : 60);
+      var left = Math.max(0, (resetsAt - now) / H), proj = Math.max(0, Math.round((used + def.burn * left) * 10) / 10);
+      return {
+        usedPct: used, resetsAt: resetsAt, windowMs: ms, startedAt: start, elapsedPct: Math.round((now - start) / ms * 10000) / 100,
+        burnPerHour: def.burn > 0 ? def.burn : null, projectedPctAtReset: def.burn > 0 ? proj : null,
+        projectedHitAt: def.burn > 0 && used < 100 && used + def.burn * left >= 100 ? Math.round(now + (100 - used) / def.burn * H) : null,
+        status: used >= 100 ? 'limit' : used >= 90 ? 'high' : used >= 70 ? 'watch' : 'ok', history: hist, updatedAt: upd
+      };
+    }
+    function payload() {
+      var now = Date.now(), sc = SC[q] || SC.ok;
+      if (q === 'none') return { available: false, reason: 'no-data', source: 'statusline', updatedAt: null, windows: {}, sessions: 0, now: now };
+      if (q === 'nosub') return { available: false, reason: 'not-subscriber', source: 'statusline', updatedAt: null, windows: {}, sessions: 1, now: now };
+      if (sc.resetOnly) return { available: false, reason: 'no-data', source: 'statusline', updatedAt: null, windows: {}, reset: { five_hour: now - 60000 }, sessions: 1, now: now };
+      var upd = now - (sc.ageMin ? sc.ageMin * 60000 : 4000 + (now % 9000));
+      var w = {};
+      if (sc.f) w.five_hour = win(sc.f, 5 * H, now, upd);
+      if (sc.s) w.seven_day = win(sc.s, 7 * 24 * H, now, upd);
+      var p = { available: true, source: 'statusline', updatedAt: upd, windows: w, sessions: 1, now: now };
+      if (sc.ageMin) { p.stale = true; p.reason = 'stale'; }
+      return p;
+    }
+    return { payload: payload };
+  })();
   function json(o, st) { return new Response(JSON.stringify(o), { status: st || 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } }); }
 
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) || '';
     if (url.indexOf('/api/') === -1) return fetch0(input, init);
-    if (url.indexOf('/api/live/state') !== -1) return Promise.resolve(json(Sim.state()));
+    if (url.indexOf('/api/limits') !== -1) return Promise.resolve(json(Lim.payload()));
+    if (url.indexOf('/api/live/state') !== -1) { var st0 = Sim.state(); st0.limits = Lim.payload(); return Promise.resolve(json(st0)); }
     if (url.indexOf('/api/stream') !== -1) return Promise.resolve(json({ error: 'use EventSource' }, 404));
     var sm = /\/api\/(request|prompt)\?(?:key|id)=(sim-[^&]+)/.exec(url);
     if (sm) {

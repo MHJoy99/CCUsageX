@@ -580,6 +580,136 @@ sessions dropped after 30 quiet minutes.
 main session plus N background subagents with hand-back, killed and never-ending endings). Point a server at it with
 `CLAUDE_CONFIG_DIR=<dir> CCU_DATA_DIR=<dir>/data CCU_START_DATE=all node server.js --port 3047`.
 
+## Plan usage limits
+
+The plan limits card shows the 5-hour session window and the 7-day weekly window for Pro and Max subscribers. These
+numbers do not come from the transcripts. The transcripts have no quota data, so CCUsageX takes them from Claude Code's
+status line instead.
+
+### Source
+
+Claude Code runs the command in `statusLine.command` and writes a JSON object to its stdin. For claude.ai Pro and
+Max subscribers, the object has a `rate_limits` field after the first API response in a session:
+
+```json
+"rate_limits": {
+  "five_hour": { "used_percentage": 23.5, "resets_at": 1738425600 },
+  "seven_day": { "used_percentage": 41.2, "resets_at": 1738857600 }
+}
+```
+
+| Field | Type and unit |
+|---|---|
+| `five_hour`, `seven_day` | Each window is optional. Either one can be missing. |
+| `used_percentage` | Float, 0 to 100. Percent of that window's limit used. |
+| `resets_at` | Unix time in **seconds**. CCUsageX converts it to milliseconds. |
+| `spend_limit` | Present for some gateway users: `{ used_percentage, resets_at, used_usd, limit_usd, period }`. |
+
+Other stdin fields that CCUsageX stores with the snapshot: `session_id`, `transcript_path`, `cwd`, `model.id`,
+`model.display_name`, `workspace.current_dir`, `version`, `cost.total_cost_usd` and `context_window`, where present.
+Environment variables and credentials are never stored.
+
+When Claude Code runs the status line: at session start, after each assistant message, after `/compact`, after a
+permission-mode change, on the `refreshInterval` timer (the installer sets 30 seconds), and when a window reaches its
+`resets_at`. Claude Code debounces these runs by 300 ms and cancels a script that runs too long, so the status line
+must finish in about 100 ms. A non-zero exit or no output blanks the status line.
+
+### What is not available
+
+- **No per-model windows.** Claude Code reports no separate Opus or Sonnet limits, so CCUsageX shows none and does not
+  estimate them.
+- **Pro and Max only.** Other plans send no `rate_limits`. The card then says so.
+- **After the first reply.** A new session has no numbers until its first response.
+- **No history before setup.** The sparkline starts when the status line hook is installed.
+- **No direct API calls.** CCUsageX does not call usage endpoints and does not read `~/.claude/.credentials.json`.
+
+### Pipeline
+
+1. **Helper (`scripts/statusline.js`).** Reads stdin, then writes `<CCU_DATA_DIR or ~/.ccusagex>/limits/<session_id>.json`
+   through a temporary file and a rename. The file holds `{ receivedAt, sessionId, model, cwd, rate_limits, spend_limit?,
+   cost?, context_window? }`. It appends a line to `limits/history.jsonl` only when a percentage or reset time changed:
+   `{ t, w: "5h" | "7d" | "spend", p, r }`. The file is capped at about 5 MB. When it grows past that, the newest half is
+   kept. The helper then prints one status line for Claude Code's status bar, such as
+   `Opus 5.5 · 5h ▰▰▱▱▱ 23% ↻3:45pm · 7d 41% ↻Thu · ctx 9%`. It uses plain ASCII characters on a
+   terminal that is not UTF-8 (or with `CCU_ASCII=1`), and no colour when `NO_COLOR` is set. Values of 90% or more are shown in red. With `--chain "<command>"`, it passes stdin to an existing
+   status line and prints that line's output instead.
+2. **Server (`server.js`).** Watches `limits/`. It serves the snapshot as `GET /api/limits`, pushes a `limits` event on
+   the SSE stream when it changes, and includes the same object in `GET /api/live/state`. The newest snapshot wins for
+   each window across sessions, because one account has one limit. Snapshots older than 15 minutes are returned with
+   `stale`. A window is dropped once its `resets_at` has passed, so the card shows a reset state.
+3. **Projection.** The burn rate is a linear fit over the window's history: the last 60 minutes for the 5-hour window and
+   the last 24 hours for the 7-day window. It is `null` with fewer than two points or less than five minutes of span.
+   The projection is `used_percentage` plus burn rate times the time left in the window. Status is `ok`, `watch` (70%
+   or more), `high` (90% or more) or `limit` (100%).
+4. **UI.** `public/limits.js` draws the card on Overview and Live, and a compact header pill on every view. The card
+   tells the user which state applies: setup needed, waiting for the first reply, not a Pro or Max plan, stale, or reset.
+
+### `GET /api/limits` payload
+
+All times are epoch **milliseconds**; percentages are 0–100.
+
+```json
+{
+  "available": true,
+  "reason": null,
+  "stale": false,
+  "source": "statusline",
+  "updatedAt": 1791689408354,
+  "now": 1791689409456,
+  "sessions": 1,
+  "activeSessions": 1,
+  "windows": {
+    "five_hour": {
+      "usedPct": 28, "resetsAt": 1791696605000, "windowMs": 18000000, "startedAt": 1791678605000,
+      "elapsedPct": 60.0, "burnPerHour": 2.5, "projectedPctAtReset": 33, "projectedHitAt": null,
+      "willExceed": false, "status": "ok", "updatedAt": 1791689408354,
+      "history": [{ "t": 1791689407007, "p": 20 }, { "t": 1791689408354, "p": 28 }]
+    },
+    "seven_day": { "…": "same shape, windowMs 604800000" }
+  },
+  "reset": { "five_hour": 1791696605000 }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `available` / `reason` | `false` + `no-data` (nothing reported yet, or every window has reset), `false` + `not-subscriber` (reports exist but never carried limits), or `true` + `stale` when the newest report is over 15 minutes old (values still returned). |
+| `sessions` / `activeSessions` | Sessions that reported in the last 24 hours / last 15 minutes. |
+| `windows.*.burnPerHour` | Least-squares slope in % per hour over this window instance only; `null` with fewer than 2 points or under 5 minutes of span. |
+| `windows.*.projectedHitAt` | When 100% is reached at the current pace, only if that falls before the reset; otherwise `null`. |
+| `windows.spend_limit` | Gateway accounts only; adds `usedUsd`, `limitUsd`, `period`. |
+| `reset` | Windows that were reported earlier and have since passed their reset time. |
+
+Across sessions, the snapshot whose numbers **changed** most recently wins, so an idle open session that keeps re-reporting old numbers cannot override the active one.
+
+### Installer
+
+`scripts/install-statusline.js` changes only the `statusLine` entry in Claude Code's `settings.json`. The folder is
+`--config-dir`, else `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
+
+- `--install` sets `{ "type": "command", "command": "node \"<scripts/statusline.js>\"", "padding": 0,
+  "refreshInterval": 30 }`. The path uses forward slashes, so it works in Git Bash, PowerShell and cmd.
+- If there is no `statusLine`, the file is created when it does not exist. Nothing is backed up in that case.
+- If another status line exists, it is kept running: the command becomes `node "<statusline.js>" --chain "<old command>"`,
+  with `"`, `\`, `$` and `` ` `` escaped for POSIX sh. The old object is stored under the top-level key
+  `ccusagexPreviousStatusLine`.
+- Before any write, the file is copied to `settings.json.bak-<YYYYMMDD-HHMMSS>` (with `-2`, `-3` and so on if that name
+  exists). Other keys keep their order, and the output is 2-space JSON with a final newline. A byte order mark is kept.
+- The installer refuses, without writing, when `settings.json` is not valid JSON or not an object, when the helper
+  script is missing, or when `statusLine` changed by hand while `ccusagexPreviousStatusLine` still exists.
+- `--uninstall` puts the saved object back and deletes the key. Without a saved key, it removes `statusLine`. It does
+  nothing when the current `statusLine` is not CCUsageX's.
+- `--status` reports the current state, whether the helper exists, and how many snapshot files are in `limits/`.
+- `--dry-run` shows the change without writing anything.
+
+Runtime files for this feature:
+
+| Path | Contents |
+|---|---|
+| `~/.ccusagex/limits/<session_id>.json` (or `$CCU_DATA_DIR/limits/`) | Latest snapshot for one Claude Code session. |
+| `~/.ccusagex/limits/history.jsonl` | Points used for the sparkline and the burn rate. Capped at about 5 MB. |
+| `<config dir>/settings.json.bak-<timestamp>` | Copy of `settings.json` made before an install or uninstall. |
+
 ## Design tokens
 
 Defined on `:root` in `public/styles.css`. The light set is the default (`<html data-theme="light">`). The
@@ -649,8 +779,11 @@ public/app.js             UI state, fetching, tables, drawers, filters, CSV link
 public/charts.js          inline-SVG chart kit (window.Charts)
 public/live.js, live.css  Live view (real-time)
 scripts/                  demo data, GitHub Pages demo build, screenshots, live stress generator
+scripts/statusline.js     status line helper that writes plan-limit snapshots (see Plan usage limits)
+scripts/install-statusline.js  installs, removes or shows the status line helper in settings.json
 test/server.test.js       unit and API tests on synthetic transcripts (node --test)
 test/live.test.js         live view: stream, events, phases, subagent lifecycle, latency
+test/install-statusline.test.js  installer tests on temp config folders (node --test)
 test/verify.js            independent recomputation from a copy of the transcripts (optional ccusage cross-check)
 test/charts-demo.html     chart gallery with fixture data
 CCUsageX.ps1              Windows launcher: start, stop, status, restart

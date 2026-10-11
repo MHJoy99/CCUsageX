@@ -5,7 +5,18 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-10-11
+
+### Added
+
+- **Plan usage limits** for Pro and Max: the 5-hour session and 7-day weekly windows with reset times, a pace
+  projection and a short history. The numbers come from the `rate_limits` field that Claude Code passes to its status
+  line. They are not read from the transcripts or from any undocumented endpoint.
+- `scripts/install-statusline.js` (`--install`, `--uninstall`, `--status`, `--dry-run`, `--config-dir`): edits only the
+  `statusLine` entry in `settings.json` after backing it up. An existing status line keeps running through `--chain`,
+  and `--uninstall` restores it exactly. Exposed as `npm run statusline:install` and `npm run statusline:uninstall`.
+- `scripts/statusline.js`, the status line helper that writes snapshots to `~/.ccusagex/limits/`.
+- `GET /api/limits`, and a `limits` event on the Server-Sent Events stream.
 
 ## [1.1.0] - 2026-10-11
 

@@ -486,6 +486,7 @@
     opts = opts || {};
     if (!p || typeof p !== 'object') return;
     if (p.now) M.skew = num(p.now) - Date.now();
+    if (p.limits && window.CCULimits) window.CCULimits.push(p.limits);
     var first = !M.haveState;
     (p.sessions || []).forEach(function (ss) { mergeSession(ss, opts); });
     if (p.today) M.today = { requests: num(p.today.requests), cost: num(p.today.cost), tokens: num(p.today.tokens), output: num(p.today.output) };
@@ -537,6 +538,8 @@
       metric('tpm', 'Tokens / min') + metric('cpm', 'Cost / min') + metric('rpm', 'Requests / min') +
       '</div></section>' +
 
+      '<section class="lim" id="lim-live" data-limits="live"></section>' +
+
       '<div class="lv-chips" id="lv-chips" role="group" aria-label="Sessions"></div>' +
 
       '<div class="lv-empty" id="lv-empty">' +
@@ -567,6 +570,7 @@
       '<div class="lv-feed-list" id="lv-feed" role="log" aria-live="off"></div></article>' +
       '</div></div>';
 
+    if (window.CCULimits) window.CCULimits.scan();
     EL.conn = $('#lv-conn'); EL.hero = $('#lv-hero'); EL.tagT = $('#lv-tag-t'); EL.tagS = $('#lv-tag-s');
     EL.stT = $('#lv-st-t'); EL.stTimer = $('#lv-st-timer'); EL.subModel = $('#lv-sub-model'); EL.subCode = $('#lv-sub-code'); EL.subTurn = $('#lv-sub-turn');
     EL.chips = $('#lv-chips'); EL.empty = $('#lv-empty'); EL.body = $('#lv-body');
@@ -1739,6 +1743,7 @@
     TR.es = es;
     es.onopen = function () { TR.retries = 0; TR.fails = 0; stopPolling(); setConn('stream'); startResync(); };
     es.addEventListener('snapshot', function (e) { var p = parse(e.data); if (p) { onSnapshot(p); setConn('stream'); stopPolling(); } });
+    es.addEventListener('limits', function (e) { var p = parse(e.data); if (p && window.CCULimits) window.CCULimits.push(p); });
     es.addEventListener('state', function (e) { var p = parse(e.data); if (p) onStateMsg(p, false); });
     es.addEventListener('ev', function (e) {
       var ev = parse(e.data);

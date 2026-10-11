@@ -50,8 +50,50 @@ whichever fits your workflow, or both to cross-check.
 ## Does it work with Claude Pro and Claude Max?
 
 Yes. CCUsageX reads local transcript files, and those are written whichever plan you are on. The costs it shows are
-API-equivalent values for the usage, not what your plan charges. It does not read your plan's usage limits or quota
-percentages, so it cannot show how close you are to those.
+API-equivalent values for the usage, not what your plan charges. Your 5-hour and weekly plan limits are a separate
+feature. They are shown only on Pro and Max, and only after you install the status line hook. See
+[How do I see my plan usage limits?](#how-do-i-see-my-plan-usage-limits-5-hour-and-weekly).
+
+## How do I see my plan usage limits (5-hour and weekly)?
+
+Run `npm run statusline:install` once in the repository folder, or `node scripts/install-statusline.js --install`.
+Claude Code then passes its usage-limit numbers to the CCUsageX status line hook on every reply, and CCUsageX shows the
+5-hour session and 7-day weekly windows with their reset times and a pace projection. Check the result with
+`node scripts/install-statusline.js --status`. The numbers appear after your first reply in a Claude Code session, and
+only on Pro and Max plans. [Plan usage limits](ARCHITECTURE.md#plan-usage-limits) describes the data source.
+
+## Why does the limits card say there is no data yet?
+
+The card explains which state it is in. The usual reasons are:
+
+- **The status line is not set up.** Run `npm run statusline:install`, then send one message in Claude Code.
+- **No reply yet in this session.** Claude Code sends the numbers with its first response, so wait for it to finish.
+- **Not a Pro or Max plan.** Claude Code reports these limits only for claude.ai subscriptions. API-key plans have no
+  limit data.
+- **Stale.** The last snapshot is more than 15 minutes old, usually because no Claude Code session has been active.
+
+`node scripts/install-statusline.js --status` prints whether the hook is installed and whether its helper script is
+present.
+
+## Will installing the status line change my Claude Code settings? Can I undo it?
+
+It changes one entry, `statusLine`, in your Claude Code `settings.json`. Before writing, the installer copies the file to
+`settings.json.bak-<YYYYMMDD-HHMMSS>` in the same folder, and every other setting is kept. If you already had a status
+line, it keeps running: CCUsageX calls it with `--chain` and shows its output, and your previous setting is saved under
+`ccusagexPreviousStatusLine`. To undo everything, run `npm run statusline:uninstall`. It restores your previous status
+line exactly and removes the saved key. `--dry-run` shows the change without writing anything. An invalid
+`settings.json` stops the installer before it writes anything.
+
+## Why are there no Opus or Sonnet limits?
+
+Claude Code reports only two overall windows to the status line: the 5-hour session window and the 7-day weekly window.
+It does not report separate limits per model, so CCUsageX cannot show them and does not estimate them.
+
+## Does the limits feature read my login or call Anthropic?
+
+No. CCUsageX reads only the JSON that Claude Code passes to the status line command. It does not read
+`~/.claude/.credentials.json`, does not call any usage endpoint, and makes no network request. The snapshots are
+written to `~/.ccusagex/limits/` (or `$CCU_DATA_DIR/limits/`) on your machine.
 
 ## How do I change prices or the start date?
 

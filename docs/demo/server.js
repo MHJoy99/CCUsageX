@@ -1407,7 +1407,8 @@ function liveState(nowArg) {
   }
   sessions.sort((a, b) => b.lastTs - a.lastTs);
   const active = sessions.some((s) => s.phase === 'generating' || s.phase === 'tool' || now - s.lastTs < ACTIVE_MS);
-  return { now, active, sessions, today: t.today, rate: t.rate };
+  limitsRefresh(500);
+  return { now, active, sessions, today: t.today, rate: t.rate, limits: limitsPayload(now) };
 }
 
 function liveSweepSessions(now) {
@@ -1430,7 +1431,7 @@ function sseState(event, state) {
   return `id: ${LV.seq}\nevent: ${event}\ndata: ${JSON.stringify(state)}\n\n`;
 }
 
-function stateKey(st) { return JSON.stringify({ ...st, now: 0 }); }
+function stateKey(st) { return JSON.stringify({ ...st, now: 0, limits: 0 }); } // limits have their own event
 
 function sseConnect(req, res, u) {
   res.writeHead(200, {
@@ -1448,8 +1449,10 @@ function sseConnect(req, res, u) {
   }
   const state = liveState();
   res.write(sseState('snapshot', state));
+  res.write(sseState('limits', state.limits));
   const sub = { res };
   if (!LV.subs.size) LV.lastPing = Date.now(); // first ping 15 s after the first subscriber
+  if (!LV.subs.size) { LIM.lastKey = limitsKey(state.limits); LIM.lastSentAt = Date.now(); } // the limits event above is this client's baseline
   LV.subs.add(sub);
   LV.lastStateStr = stateKey(state);
   const done = () => { LV.subs.delete(sub); };
@@ -1464,7 +1467,9 @@ function liveTick() {
   for (const p of [...LV.pend.values()]) if (now - p.seen > LIVE_PARTIAL_MS) liveEmitRequest(p, 'timer');
   liveSweepSessions(now);
   liveEnsureWatch(now);
+  limitsEnsureWatch(now);
   if (LV.subs.size) {
+    try { limitsBroadcast(false); } catch (e) { lastError = 'limits: ' + String(e && e.message || e); }
     if (now - LV.lastPing >= LIVE_PING_MS) { LV.lastPing = now; sseBroadcast(': ping\n\n'); }
     if (now - LV.lastStateAt >= LIVE_STATE_MIN_MS) {
       const st = liveState();
@@ -1576,6 +1581,7 @@ function liveAttach(server) {
   LV.servers.add(server);
   liveEnsureRunning();
   liveEnsureWatch();
+  limitsEnsureWatch();
   const origClose = server.close;
   server.close = function close(...args) { // open event streams would keep close() waiting forever
     for (const sub of LV.subs) if (sub.res.socket && sub.res.socket.server === server) sub.res.destroy();
@@ -1589,6 +1595,7 @@ function liveAttach(server) {
 
 function stopLive() {
   liveDropWatcher();
+  limitsStop();
   if (LV.tick) { clearInterval(LV.tick); LV.tick = null; }
   if (LV.pollTimer) { clearInterval(LV.pollTimer); LV.pollTimer = null; }
   LV.polling = false;
@@ -1597,6 +1604,260 @@ function stopLive() {
   if (LV.tidyTimer) { clearTimeout(LV.tidyTimer); LV.tidyTimer = null; }
   for (const sub of LV.subs) { try { sub.res.destroy(); } catch { /* ignore */ } }
   LV.subs.clear();
+}
+
+// ---------------------------------------------------------------- plan limits (from Claude Code's status line)
+// scripts/statusline.js records the documented `rate_limits` of the status line stdin as <DATA_DIR>/limits/<session>.json
+// (+ limits/history.jsonl, one line per change). Nothing here calls the network or reads credentials.
+
+const LIM_DIR = path.join(DATA_DIR, 'limits');
+const LIM_STALE_MS = 15 * 60e3;       // freshest report older than this -> stale (values are still returned)
+const LIM_KEEP_MS = 8 * 24 * 3600e3;  // ignore snapshots / history points older than this
+const LIM_HIST_POINTS = 120;          // points per window in the payload
+const LIM_MIN_SPAN_MS = 5 * 60e3;     // burn rate needs at least this much time between its first and last point
+const LIM_WINDOWS = {
+  five_hour: { key: '5h', windowMs: 5 * 3600e3, lookbackMs: 60 * 60e3 },
+  seven_day: { key: '7d', windowMs: 7 * 24 * 3600e3, lookbackMs: 24 * 3600e3 },
+  spend_limit: { key: 'spend', windowMs: null, lookbackMs: 24 * 3600e3 },
+};
+const LIM = {
+  snaps: new Map(),      // file -> { mtimeMs, size, snap }
+  hist: { size: 0, offset: 0, mtimeMs: 0, points: [] },
+  loadedAt: 0, watcher: null, watchTry: 0, kick: null, lastKey: '', lastSentAt: 0,
+};
+
+function limStatus(p) { return p >= 100 ? 'limit' : p >= 90 ? 'high' : p >= 70 ? 'watch' : 'ok'; }
+function limFiniteNum(v) { return typeof v === 'number' && Number.isFinite(v) ? v : null; }
+function limRound(v, d) { const k = 10 ** d; return Math.round(v * k) / k; }
+function limMs(v) { v = limFiniteNum(v); return v == null ? null : v < 1e12 ? Math.round(v * 1000) : Math.round(v); } // epoch seconds -> ms
+
+// Least-squares slope of used% over time, in percentage points per hour. null with < 2 points or < 5 minutes of span.
+function limBurn(points) {
+  if (points.length < 2) return null;
+  if (points[points.length - 1].t - points[0].t < LIM_MIN_SPAN_MS) return null;
+  const t0 = points[0].t;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const q of points) { const x = (q.t - t0) / 3600e3; sx += x; sy += q.p; sxx += x * x; sxy += x * q.p; }
+  const n = points.length;
+  const den = n * sxx - sx * sx;
+  if (!(den > 0)) return null;
+  return Math.max(0, (n * sxy - sx * sy) / den);
+}
+
+// One window's payload entry. `hist` = recorded points {t,p} for exactly this window instance (any order), `wd` = LIM_WINDOWS entry,
+// `cur` = { used, resetsAt(ms)|null, updatedAt(ms) }.
+//   windowStart = resetsAt - windowMs;  elapsedPct = (now - windowStart) / windowMs
+//   burn = least-squares slope of the points inside the lookback (60 min for 5h, 24 h for 7d) and inside the window
+//   projectedPctAtReset = max(0, used + burn * hoursLeft);  projectedHitAt = now + (100 - used) / burn when that crosses 100 before the reset
+function limWindow(wd, cur, hist, now) {
+  const used = Math.max(0, Math.min(100, cur.used));
+  const resetsAt = cur.resetsAt;
+  const windowMs = wd.windowMs;
+  const startedAt = windowMs && resetsAt ? resetsAt - windowMs : null;
+  const elapsedPct = startedAt != null ? limRound(Math.max(0, Math.min(100, (now - startedAt) / windowMs * 100)), 2) : null;
+  const seen = Math.min(now, cur.updatedAt);
+  const pts = hist.filter((q) => q.t <= now && (startedAt == null || q.t >= startedAt)).sort((a, b) => a.t - b.t);
+  if (!pts.length || pts[pts.length - 1].t < seen) pts.push({ t: seen, p: used }); // the value held as of the last report
+  const lb = Math.max(startedAt == null ? 0 : startedAt, now - wd.lookbackMs);
+  const fit = pts.filter((q) => q.t >= lb);
+  const before = pts.filter((q) => q.t < lb);
+  // percentages only change when recorded, so the value in force when the lookback began counts as a point (only while reports are fresh)
+  if (before.length && fit.length && fit[0].t > lb && now - seen <= LIM_STALE_MS) fit.unshift({ t: lb, p: before[before.length - 1].p });
+  const burn = limBurn(fit);
+  const hoursLeft = resetsAt ? Math.max(0, (resetsAt - now) / 3600e3) : null;
+  let projected = null;
+  let hitAt = null;
+  if (burn != null && hoursLeft != null) {
+    projected = limRound(Math.max(0, used + burn * hoursLeft), 1);
+    if (used < 100 && burn > 0 && used + burn * hoursLeft >= 100) hitAt = Math.round(now + (100 - used) / burn * 3600e3);
+  }
+  let out = pts;
+  if (out.length > LIM_HIST_POINTS) { // even downsample, keep first and last
+    const step = (out.length - 1) / (LIM_HIST_POINTS - 1);
+    out = Array.from({ length: LIM_HIST_POINTS }, (_, i) => pts[Math.round(i * step)]);
+  }
+  return {
+    usedPct: limRound(used, 2), resetsAt, windowMs, startedAt, elapsedPct,
+    burnPerHour: burn == null ? null : limRound(burn, 3),
+    projectedPctAtReset: projected, projectedHitAt: hitAt,
+    status: limStatus(used),
+    history: out.map((q) => ({ t: q.t, p: limRound(q.p, 2) })),
+    willExceed: projected != null && projected > 100,   // extra: the projection crosses 100 % before the reset
+    updatedAt: cur.updatedAt,                            // extra: when this value was last reported
+  };
+}
+
+// snaps: parsed snapshot files; hist: [{t,w,p,r}] from history.jsonl. Pure: everything depends on the arguments and `now`.
+function computeLimits(snaps, hist, now) {
+  const valid = (snaps || []).filter((s) => s && limFiniteNum(s.receivedAt) != null && now - s.receivedAt < LIM_KEEP_MS && s.receivedAt <= now + 60e3);
+  const out = { available: false, source: 'statusline', updatedAt: null, windows: {}, sessions: valid.filter((s) => now - s.receivedAt < 24 * 3600e3).length, now };
+  if (!valid.length) { out.reason = 'no-data'; return out; }
+  const reset = {};
+  const hasData = valid.some((s) => s.rate_limits || s.spend_limit);
+  for (const name of Object.keys(LIM_WINDOWS)) {
+    const wd = LIM_WINDOWS[name];
+    const cands = [];
+    for (const s of valid) {
+      const w = name === 'spend_limit' ? s.spend_limit : s.rate_limits && s.rate_limits[name];
+      if (!w) continue;
+      const used = limFiniteNum(w.used_percentage);
+      if (used == null) continue;
+      const resetsAt = limMs(w.resets_at);
+      if (resetsAt != null && resetsAt <= now) { reset[name] = Math.max(reset[name] || 0, resetsAt); continue; } // window is over: back to 0
+      cands.push({ s, used, resetsAt, w });
+    }
+    if (!cands.length) continue;
+    // the account is the same in every session: the snapshot whose numbers changed most recently wins
+    const fresh = (c) => (limFiniteNum(c.s.changedAt) != null ? c.s.changedAt : c.s.receivedAt);
+    cands.sort((a, b) => fresh(b) - fresh(a) || b.s.receivedAt - a.s.receivedAt || b.used - a.used);
+    const win = cands[0];
+    const same = cands.filter((c) => win.resetsAt == null || (c.resetsAt != null && Math.abs(c.resetsAt - win.resetsAt) < 60e3));
+    const updatedAt = Math.max(...same.map((c) => c.s.receivedAt));
+    const points = (hist || []).filter((h) => h && h.w === wd.key && limFiniteNum(h.t) != null && limFiniteNum(h.p) != null &&
+      (win.resetsAt == null ? h.r == null : limMs(h.r) != null && Math.abs(limMs(h.r) - win.resetsAt) < 120e3)).map((h) => ({ t: h.t, p: h.p }));
+    const entry = limWindow(wd, { used: win.used, resetsAt: win.resetsAt, updatedAt }, points, now);
+    if (name === 'spend_limit') {
+      entry.usedUsd = limFiniteNum(win.w.used_usd);
+      entry.limitUsd = limFiniteNum(win.w.limit_usd);
+      entry.period = typeof win.w.period === 'string' ? win.w.period : null;
+    }
+    out.windows[name] = entry;
+  }
+  const names = Object.keys(out.windows);
+  if (Object.keys(reset).length) out.reset = reset; // extra: windows reported earlier that have since reset (their old resetsAt, ms)
+  out.activeSessions = valid.filter((s) => now - s.receivedAt < LIM_STALE_MS).length;
+  if (!names.length) { out.reason = hasData ? 'no-data' : 'not-subscriber'; return out; }
+  out.available = true;
+  out.updatedAt = Math.max(...names.map((n) => out.windows[n].updatedAt));
+  if (now - out.updatedAt > LIM_STALE_MS) { out.stale = true; out.reason = 'stale'; }
+  return out;
+}
+
+function limitsReadHistory() {
+  const h = LIM.hist;
+  const file = path.join(LIM_DIR, 'history.jsonl');
+  let st;
+  try { st = fs.statSync(file); } catch { h.size = 0; h.offset = 0; h.mtimeMs = 0; h.points = []; return; }
+  if (st.size === h.size && st.mtimeMs === h.mtimeMs) return;
+  let start = h.offset;
+  if (st.size < h.size) { start = 0; h.points = []; } // the statusline script capped (rewrote) the file
+  let skipFirst = false;
+  const MAX = 2 << 20;
+  if (st.size - start > MAX) { start = st.size - MAX; skipFirst = true; h.points = []; }
+  let text = '';
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(st.size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      text = buf.toString('utf8');
+    } finally { fs.closeSync(fd); }
+  } catch { return; }
+  h.size = st.size;
+  h.mtimeMs = st.mtimeMs;
+  const cut = text.lastIndexOf('\n');
+  if (cut < 0) return; // no complete line yet
+  h.offset = start + Buffer.byteLength(text.slice(0, cut + 1));
+  const lines = text.slice(0, cut).split('\n');
+  if (skipFirst) lines.shift();
+  const min = Date.now() - LIM_KEEP_MS;
+  for (const ln of lines) {
+    if (!ln) continue;
+    try {
+      const p = JSON.parse(ln);
+      if (p && typeof p.w === 'string' && limFiniteNum(p.t) != null && limFiniteNum(p.p) != null) h.points.push({ t: p.t, w: p.w, p: p.p, r: p.r == null ? null : p.r });
+    } catch { /* partial or foreign line */ }
+  }
+  h.points = h.points.filter((p) => p.t >= min);
+  if (h.points.length > 50000) h.points = h.points.slice(-50000);
+}
+
+// Re-read changed snapshot files. maxAgeMs > 0 lets cheap callers (live state, ticks) reuse a very recent read.
+function limitsRefresh(maxAgeMs = 0) {
+  const nowMs = Date.now();
+  if (maxAgeMs > 0 && nowMs - LIM.loadedAt < maxAgeMs) return;
+  LIM.loadedAt = nowMs;
+  let names = [];
+  try { names = fs.readdirSync(LIM_DIR); } catch { LIM.snaps.clear(); }
+  const seen = new Set();
+  for (const n of names) {
+    if (!/\.json$/i.test(n)) continue;
+    const f = path.join(LIM_DIR, n);
+    seen.add(f);
+    let st;
+    try { st = fs.statSync(f); } catch { continue; }
+    const c = LIM.snaps.get(f);
+    if (c && c.mtimeMs === st.mtimeMs && c.size === st.size) continue;
+    try {
+      const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+      if (j && typeof j === 'object') LIM.snaps.set(f, { mtimeMs: st.mtimeMs, size: st.size, snap: j });
+    } catch { /* half-written or foreign file: keep what we had, the next event retries */ }
+  }
+  for (const f of [...LIM.snaps.keys()]) if (!seen.has(f)) LIM.snaps.delete(f);
+  limitsReadHistory();
+}
+
+// Is CCUsageX's status line configured in Claude Code's settings? Read-only, cached briefly. null = can't tell.
+let limInstalled = { at: 0, v: null };
+function statuslineInstalled(now = Date.now()) {
+  if (now - limInstalled.at < 10e3) return limInstalled.v;
+  let v = null;
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8').replace(/^﻿/, ''));
+    const cmd = j && j.statusLine && typeof j.statusLine.command === 'string' ? j.statusLine.command : '';
+    v = /statusline.js/i.test(cmd);
+  } catch (e) { v = e && e.code === 'ENOENT' ? false : null; }
+  limInstalled = { at: now, v };
+  return v;
+}
+
+function limitsPayload(now = Date.now()) {
+  const p = computeLimits([...LIM.snaps.values()].map((x) => x.snap), LIM.hist.points, now);
+  p.installed = statuslineInstalled(now);
+  return p;
+}
+
+// What counts as a change worth pushing: values, status, reset time, availability. Not the ticking clock.
+function limitsKey(p) {
+  return JSON.stringify([p.available, p.reason || null, !!p.stale, p.installed, p.updatedAt, p.sessions, p.activeSessions,
+    Object.entries(p.windows).map(([k, w]) => [k, w.usedPct, w.resetsAt, w.status, w.burnPerHour, w.updatedAt]), p.reset ? Object.keys(p.reset).sort() : null]);
+}
+
+function limitsBroadcast(fresh) {
+  if (!LV.subs.size) return;
+  limitsRefresh(fresh ? 0 : 900);
+  const now = Date.now();
+  const p = limitsPayload(now);
+  const k = limitsKey(p);
+  if (k === LIM.lastKey && now - LIM.lastSentAt < 60e3) return; // unchanged; a heartbeat every minute keeps clocks and projections fresh
+  LIM.lastKey = k;
+  LIM.lastSentAt = now;
+  sseBroadcast(sseState('limits', p));
+}
+
+function limitsKick() { // a file in limits/ changed: wait a few ms for the rename to settle, then read once
+  if (LIM.kick) return;
+  LIM.kick = setTimeout(() => {
+    LIM.kick = null;
+    try { limitsBroadcast(true); } catch (e) { lastError = 'limits: ' + String(e && e.message || e); }
+  }, 20);
+  LIM.kick.unref();
+}
+
+function limitsEnsureWatch(now = Date.now()) {
+  if (LIM.watcher || now - LIM.watchTry < 2000) return;
+  LIM.watchTry = now;
+  try { fs.mkdirSync(LIM_DIR, { recursive: true }); } catch { return; }
+  try {
+    const w = fs.watch(LIM_DIR, { persistent: false }, () => limitsKick());
+    w.on('error', () => { if (LIM.watcher === w) { LIM.watcher = null; try { w.close(); } catch { /* ignore */ } } });
+    LIM.watcher = w;
+  } catch { /* the 1 s tick still picks changes up */ }
+}
+
+function limitsStop() {
+  if (LIM.watcher) { try { LIM.watcher.close(); } catch { /* ignore */ } LIM.watcher = null; }
+  if (LIM.kick) { clearTimeout(LIM.kick); LIM.kick = null; }
 }
 
 // ---------------------------------------------------------------- http
@@ -1640,6 +1901,9 @@ function handle(req, res) {
       case '/api/live':
         if (Date.now() - (lastScanAt || 0) > 1500) scan(); // freshest possible answer for the live indicator
         return sendJson(res, live());
+      case '/api/limits':
+        limitsRefresh(0);
+        return sendJson(res, limitsPayload());
       case '/api/stream': return sseConnect(req, res, u);
       case '/api/live/state':
         if (!LV.watcher && !LV.polling && Date.now() - (lastScanAt || 0) > 1500) scan(); // no watcher (not started): stay fresh anyway
@@ -1709,6 +1973,6 @@ if (require.main === module) {
 
 module.exports = {
   start, createServer, handle, scan, scanFile, handleLine, loadStore, saveStore, resetState, newFstate,
-  liveState, stopLive, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
+  liveState, stopLive, computeLimits, limitsPayload, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
   _state: { get store() { return store; }, reqMap, byPrompt, STORE_FILE, START_MS, PROJECTS_DIR },
 };

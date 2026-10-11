@@ -1,6 +1,6 @@
 {
   "name": "ccusagex",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Local, zero-dependency web dashboard for Claude Code usage: every prompt, request, model, token, cache hit and API-equivalent cost, read from Claude Code's own logs.",
   "main": "server.js",
   "bin": {
@@ -9,10 +9,12 @@
   "scripts": {
     "start": "node server.js",
     "demo": "node scripts/demo-data.js .demo --serve",
-    "test": "node --test test/server.test.js test/live.test.js",
+    "test": "node --test test/server.test.js test/live.test.js test/limits.test.js test/install-statusline.test.js",
     "verify": "node test/verify.js --live",
     "build:demo": "node scripts/build-pages-demo.js",
-    "screenshots": "node scripts/screenshots.js"
+    "screenshots": "node scripts/screenshots.js",
+    "statusline:install": "node scripts/install-statusline.js --install",
+    "statusline:uninstall": "node scripts/install-statusline.js --uninstall"
   },
   "engines": {
     "node": ">=18"
@@ -21,6 +23,8 @@
     "server.js",
     "config.json",
     "public/",
+    "scripts/statusline.js",
+    "scripts/install-statusline.js",
     "CCUsageX.ps1",
     "Open-CCUsageX.cmd",
     "Close-CCUsageX.cmd",
