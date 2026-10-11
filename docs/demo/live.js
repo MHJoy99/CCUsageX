@@ -1155,11 +1155,17 @@
       if (!a.placed && !a.xInit) { a.x = a.key === 'main' ? p.x : mainP.x; a.y = a.key === 'main' ? p.y : mainP.y; a.xInit = true; }
       if (a.key !== 'main' && a.slotted !== s.id) { a.slotted = s.id; if (!a.xInit) { a.x = mainP.x; a.y = mainP.y; a.xInit = true; } }
       a.tx = p.x; a.ty = p.y;
-      var f = REDUCED ? 1 : 1 - Math.exp(-dt / 0.28);
+      var f = REDUCED ? 1 : 1 - Math.exp(-dt / 0.14);
       a.x += (a.tx - a.x) * f; a.y += (a.ty - a.y) * f;
       if (a.placed && !a.xInit) { a.x = a.tx; a.y = a.ty; a.xInit = true; }
       a.pulse = Math.max(0, a.pulse - dt / 1.0);
     });
+    // nodes in flight never overlap: enforce a minimum vertical gap between subagent nodes, in slot order
+    var MIN_GAP = 44;
+    for (var gi = 1; gi < G.shown.length; gi++) {
+      var ga = s.agents[G.shown[gi - 1]], gb = s.agents[G.shown[gi]];
+      if (ga && gb && Math.abs(gb.x - ga.x) < 40 && gb.y - ga.y < MIN_GAP) gb.y = ga.y + MIN_GAP;
+    }
     var ma = s.agents.main, mx = ma.x, my = ma.y;
     // edges
     G.shown.forEach(function (k) {

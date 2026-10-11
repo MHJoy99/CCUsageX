@@ -394,7 +394,7 @@
   }
 
   /* ================================================================== partial-usage caveat */
-  var statusInfo = null;
+  var statusInfo = null, uiBuildSeen = null;
   function partialCount() {
     var s = D.s && D.s.totals && D.s.totals.partial;
     return num(s != null ? s : (statusInfo && statusInfo.partialRequests));
@@ -1331,6 +1331,11 @@
         } catch (e) { /* network error */ }
       }
       try { statusInfo = (await getJson('/api/status')).data; } catch (e) { /* ignore */ }
+      // the UI files were updated on disk: reload once (the URL hash keeps the current view and filters)
+      if (statusInfo && statusInfo.uiBuild) {
+        if (!uiBuildSeen) uiBuildSeen = statusInfo.uiBuild;
+        else if (statusInfo.uiBuild !== uiBuildSeen) { location.reload(); return; }
+      }
       if (live && typeof live === 'object') {
         liveInfo = { active: !!live.active, lastTs: live.lastTs || (live.recent && live.recent[0] && live.recent[0].ts) || 0, known: true };
       } else {

@@ -923,6 +923,18 @@ function live() {
   };
 }
 
+// Fingerprint of the UI files: an open dashboard reloads itself when this changes (no manual refresh after updates).
+function uiBuild() {
+  try {
+    let h = 0;
+    for (const n of fs.readdirSync(PUBLIC_DIR).sort()) {
+      const st = fs.statSync(path.join(PUBLIC_DIR, n));
+      for (const ch of n + ':' + st.size + ':' + Math.floor(st.mtimeMs)) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+    }
+    return (h >>> 0).toString(36);
+  } catch { return null; }
+}
+
 function status() {
   const withUsage = new Set();
   for (const r of reqMap.values()) if (r.promptId) withUsage.add(r.promptId);
@@ -934,7 +946,7 @@ function status() {
     prompts: Object.values(store.prompts).filter((p) => p.origin === 'human').length, promptsWithUsage: withUsage.size,
     pricingSource: CONFIG.pricing.source, pricedModels: Object.keys(CONFIG.pricing.models),
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone, tzOffsetMin: -new Date().getTimezoneOffset(),
-    lineErrors, requestsWithExtraIterations: extra, partialRequests: partial,
+    lineErrors, requestsWithExtraIterations: extra, partialRequests: partial, uiBuild: uiBuild(),
   };
 }
 
