@@ -519,10 +519,66 @@ Liveness for the header indicator. Scans first if the last scan is more than 1.5
   "lastWriteTs": epochMs | null }     // newest transcript mtime seen
 ```
 
+### `GET /api/live/state`
+
+Snapshot of what Claude Code is doing right now (sessions with activity in the last 30 minutes). See
+[Live view](#live-view-real-time) for the fields and phase rules.
+
+### `GET /api/stream`
+
+Server-Sent Events. On connect: `retry: 1000`, then `event: snapshot` (the `/api/live/state` payload). Then one
+`event: ev` per transcript event, `event: state` at most once a second when something changed, and a `: ping` comment
+every 15 s. Every event has a monotonic `id:`; reconnecting with `Last-Event-ID` (or `?lastEventId=`) replays up to
+500 missed events and then sends a fresh snapshot, which is the source of truth.
+
 ### Static files
 
 `GET /` serves `public/index.html`. Any other `GET` path maps to a file under `public/` (`app.js`, `charts.js`,
 `styles.css`). Paths that resolve outside `public/` get `404`. Content types come from the extension.
+
+## Live view (real-time)
+
+The Live tab streams what Claude Code is doing as it happens.
+
+**Freshness.** The server watches `~/.claude/projects` with `fs.watch(…, {recursive: true})` and rescans only the changed
+transcript, so an event reaches the browser a few milliseconds after Claude Code writes the line. Where recursive watch is
+unavailable it polls recently modified files every 500 ms. Claude Code writes each assistant message when it completes,
+so text, thinking and tool calls of one message arrive together; while the model is generating, the UI shows a real
+elapsed timer since the last event.
+
+**Events (`ev`).** Common fields: `id, ts, kind, sessionId, promptId, agentId, agentType, sidechain, model, project`.
+Kinds: `prompt`, `text`, `thinking`, `tool_use` (`tool`, `toolUseId`, `summary`), `tool_result` (`isError`,
+`durationMs`), `request` (tokens, cost, latency, `usagePartial`), `subagent_start` (`agentType`, `desc`, `toolUseId`),
+`subagent_end` (`endStatus`), `turn_end`, `title`. On startup and for newly discovered files, only records from the
+last 10 minutes are emitted; records 10–30 minutes old fill the state silently.
+
+**Phases.** `generating` after a prompt or tool result, `tool` while a tool call is running, `waiting_user` after the
+main agent ends its turn, `done` for finished subagents, `idle` when quiet.
+
+**When a subagent is done.** Background subagents never send `end_turn`: their transcript ends with a
+`SubagentHandback` tool call, and the parent session then receives a `<task-notification>` (as a `queue-operation`
+and a `queued_command` attachment) with `<task-id>` and `<status>`. A subagent is `done` on whichever comes first:
+a request with `stop_reason: end_turn` (`endStatus: end_turn`), a hand-back tool call (`handback`), or a parent
+task-notification (`completed`, `killed` or `failed`; a later notification upgrades the status without a second event).
+Notifications that arrive before the subagent transcript is read are held and applied later.
+
+**Staleness.** Derived when the state is read: `generating` with no events for 180 s, or `tool` with none for 15 minutes,
+becomes `idle` with `stale: true`. A subagent that stays idle another 10 minutes without ever ending becomes `done`
+with `endStatus: unknown`. A new event revives an agent.
+
+**Restarts.** The first time the server sees a transcript modified within the last 30 minutes, it re-reads it from the
+start to rebuild the live state (stored history is not double-counted), so finished agents load as `done`.
+
+**Bounds.** 64 agents per session (finished ones dropped first), 40 recent events per session, a 500-event resume buffer,
+sessions dropped after 30 quiet minutes.
+
+**UI.** `public/live.js` renders the status hero, rolling counters, streaming activity chart, agent constellation
+(active agents as nodes, finished ones in a tray), tool-call swimlanes, context gauge, current turn and event feed. It uses
+`EventSource` with reconnect and falls back to polling `/api/live/state` every second.
+
+**Load testing.** `node scripts/live-stress.js <dir> --agents 25 --speed 1` writes synthetic transcripts in real time (a
+main session plus N background subagents with hand-back, killed and never-ending endings). Point a server at it with
+`CLAUDE_CONFIG_DIR=<dir> CCU_DATA_DIR=<dir>/data CCU_START_DATE=all node server.js --port 3047`.
 
 ## Design tokens
 
@@ -591,7 +647,10 @@ public/index.html         dashboard shell and theme bootstrap
 public/styles.css         design tokens and layout
 public/app.js             UI state, fetching, tables, drawers, filters, CSV link
 public/charts.js          inline-SVG chart kit (window.Charts)
+public/live.js, live.css  Live view (real-time)
+scripts/                  demo data, GitHub Pages demo build, screenshots, live stress generator
 test/server.test.js       unit and API tests on synthetic transcripts (node --test)
+test/live.test.js         live view: stream, events, phases, subagent lifecycle, latency
 test/verify.js            independent recomputation from a copy of the transcripts (optional ccusage cross-check)
 test/charts-demo.html     chart gallery with fixture data
 CCUsageX.ps1              Windows launcher: start, stop, status, restart

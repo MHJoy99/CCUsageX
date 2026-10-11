@@ -218,10 +218,15 @@ function cleanPrompt(text) {
     const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(text);
     return `${cmd[1]} ${args ? args[1].trim() : ''}`.trim();
   }
-  return text
+  const stripped = text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
     .replace(/<ide_(selection|opened_file)>[\s\S]*?<\/ide_\1>/g, '')
+    .replace(/<browser_instruction>[\s\S]*?<\/browser_instruction>/g, '')
     .trim();
+  if (stripped) return stripped;
+  // a message that is only an injected notice: show the notice itself, without its tags
+  const notice = /<browser_instruction>([\s\S]*?)<\/browser_instruction>/.exec(text);
+  return notice ? notice[1].trim() : '';
 }
 
 function walkJsonl(dir, out = []) {
@@ -255,6 +260,8 @@ function sessionOf(id) {
 }
 
 function numOf(v) { return Number.isFinite(v) && v > 0 ? v : 0; }
+
+let replaying = false; // scanFile is re-reading a recent transcript only to rebuild the live view (store already has it)
 
 const INTERRUPT = /^\s*\[Request interrupted by user/;
 
@@ -317,6 +324,14 @@ function handleLine(line, fstate, file) {
     }
   }
 
+  if (o.sessionId && known && ts >= liveNow - LIVE_KEEP_MS) { // the parent session reports a finished background subagent
+    let note = null;
+    if (o.type === 'queue-operation') note = o.operation === 'enqueue' ? o.content : null;
+    else if (queued) note = textOf(o.attachment.prompt).text;
+    else if (o.type === 'user' && c && !c.toolResult) note = c.text;
+    if (typeof note === 'string' && note.includes('<task-notification>')) liveNotifications(o, note, ts, project);
+  }
+
   const lv = o.sessionId && known && (o.type === 'user' || o.type === 'assistant') && ts >= liveNow - LIVE_KEEP_MS
     ? liveCtx(o, ts, project, side, file, fstate, pid) : null; // null = too old to be live
   if (lv && o.type === 'user') liveUser(o, c, kind, lv, file);
@@ -375,6 +390,7 @@ function handleLine(line, fstate, file) {
     indexRequest(r);
     setPrompt(r, pid);
   } else {
+    if (replaying) { if (lv) livePend(r, lv, file); return; } // live-only re-read at startup: the store already has this request
     if (ts < r.ts) { r.ts = ts; listDirty = true; }
     if (r.parentTs == null && o.parentUuid && fstate.uuids[o.parentUuid] != null) r.parentTs = fstate.uuids[o.parentUuid];
     if (!r.promptId && pid) setPrompt(r, pid);
@@ -527,7 +543,14 @@ function scanFile(file) {
     fstate = store.files[file] = newFstate();
   }
   if (st.mtimeMs > lastWriteTs) lastWriteTs = st.mtimeMs;
-  if (liveNow - st.mtimeMs < LIVE_KEEP_MS) LV.hot.set(file, st.mtimeMs);
+  const hot = liveNow - st.mtimeMs < LIVE_KEEP_MS;
+  if (hot) {
+    LV.hot.set(file, st.mtimeMs);
+    if (!LV.replayed.has(file)) { // first look in this process: a store from an earlier run skips the file, but the live view starts empty
+      remember(LV.replayed, file, 5000);
+      if (fstate.offset > 0) { fstate = store.files[file] = newFstate(); replaying = true; }
+    }
+  }
   let fd;
   try { fd = fs.openSync(file, 'r'); } catch { return; }
   try {
@@ -567,6 +590,7 @@ function scanFile(file) {
     dirty = true;
   } finally {
     fs.closeSync(fd);
+    replaying = false;
     liveFlush(file, liveNow - st.mtimeMs < LIVE_EMIT_MS);
   }
 }
@@ -947,7 +971,13 @@ const LIVE_PING_MS = 15000;
 const LIVE_STATE_MIN_MS = 1000;   // `state` events at most this often
 const LIVE_RING = 500;
 const LIVE_RECENT = 40;
-const LIVE_AGENTS_MAX = 24;
+const LIVE_AGENTS_MAX = 64;       // per session; finished ones are dropped first
+const LIVE_STALE_GEN_MS = 180e3;  // 'generating' with no events for this long -> 'idle' (stale)
+const LIVE_STALE_TOOL_MS = 15 * 60e3; // 'tool' with no events for this long -> 'idle' (stale)
+const LIVE_UNKNOWN_MS = 10 * 60e3;    // a subagent idle (stale) this long without ever ending -> 'done', endStatus 'unknown'
+const LIVE_END_GRACE_MS = 5000;   // after a hand-back / task-notification end, records this close behind it do not revive the agent
+const LIVE_END_DUP_MS = 120e3;    // a second end signal this close to the first is the same ending (only the status may improve)
+const LIVE_PENDING_ENDS = 200;    // task-notifications seen before their agent's transcript, per session
 const LIVE_CTX_LIMIT = 1000000;
 const SSE_BACKLOG_MAX = 4 << 20;  // drop a subscriber that does not read
 
@@ -955,14 +985,14 @@ let liveNow = Date.now();
 const seqSeed = Math.floor(Date.now() / 1000) * 1000; // ids stay monotonic across restarts, so a stale Last-Event-ID never resumes
 const LV = {
   seq: seqSeed, evicted: seqSeed, ring: [], sessions: new Map(), tools: new Map(), emittedKeys: new Set(), emittedReqs: new Set(),
-  pend: new Map(), titles: new Set(), hot: new Map(), subs: new Set(), servers: new Set(),
+  pend: new Map(), titles: new Set(), hot: new Map(), replayed: new Set(), subs: new Set(), servers: new Set(),
   watcher: null, watchIno: null, watchTry: 0, polling: false, pollTimer: null, lastWalk: 0, lastDirCheck: 0, rootCheck: 0,
   fileTimers: new Map(), tick: null, lastStateAt: 0, lastStateStr: '', lastPing: 0, tidyTimer: null, stateDirty: false, totals: null,
 };
 
 function liveReset() {
   LV.ring = []; LV.evicted = LV.seq; LV.sessions.clear(); LV.tools.clear(); LV.emittedKeys.clear(); LV.emittedReqs.clear();
-  LV.pend.clear(); LV.titles.clear(); LV.hot.clear(); LV.stateDirty = true; LV.totals = null;
+  LV.pend.clear(); LV.titles.clear(); LV.hot.clear(); LV.replayed.clear(); LV.stateDirty = true; LV.totals = null;
 }
 
 function remember(set, k, max) {
@@ -1006,7 +1036,7 @@ function liveCtx(o, ts, project, side, file, fstate, pid) {
 function newAgent(agentId, type, desc, ts) {
   return {
     agentId: agentId || null, agentType: type || null, desc: desc || null, model: null, phase: agentId ? 'generating' : 'idle', phaseSince: ts,
-    currentTool: null, open: new Map(), requests: 0, cost: 0, lastTs: ts,
+    currentTool: null, open: new Map(), requests: 0, cost: 0, startedTs: ts, lastTs: ts,
   };
 }
 
@@ -1016,7 +1046,7 @@ function liveSession(c) {
     s = {
       sessionId: c.sessionId, project: c.project || null, model: null, entrypoint: c.entrypoint || null, startedTs: c.ts, lastTs: c.ts,
       promptText: '', promptTs: null, ctxTokens: 0, agents: new Map(), turn: { requests: 0, cost: 0, tokens: 0, output: 0, startedTs: c.ts },
-      recent: [], lastTitle: undefined,
+      recent: [], lastTitle: undefined, pendingEnds: new Map(),
     };
     s.agents.set('', newAgent(null, null, null, c.ts));
     LV.sessions.set(c.sessionId, s);
@@ -1030,26 +1060,52 @@ function setPhase(a, phase, ts) {
   if (a.phase !== phase) { a.phase = phase; a.phaseSince = ts; }
 }
 
+const END_RANK = { unknown: 0, end_turn: 1, handback: 2, completed: 3, failed: 3, killed: 4 };
+
+function markDone(a, ts, status) {
+  a.phase = 'done'; a.phaseSince = ts; a.currentTool = null; a.open.clear();
+  a.endedTs = ts; a.endStatus = status || 'end_turn';
+  a.endGrace = a.endStatus === 'end_turn' || a.endStatus === 'unknown' ? 0 : LIVE_END_GRACE_MS;
+}
+
+function dropAgent(s, keep) { // keep a session's agent list bounded: finished first, else the quietest
+  let victim = null;
+  for (const [k, x] of s.agents) if (k && x !== keep && x.phase === 'done') { victim = k; break; }
+  if (victim == null) {
+    let oldest = Infinity;
+    for (const [k, x] of s.agents) if (k && x !== keep && x.lastTs < oldest) { oldest = x.lastTs; victim = k; }
+  }
+  if (victim != null) s.agents.delete(victim);
+}
+
+const REVIVES = new Set(['prompt', 'text', 'thinking', 'tool_use']);
+
 function applyEvent(s, ev) {
   const key = ev.agentId || '';
   let a = s.agents.get(key);
   if (!a) {
     a = newAgent(ev.agentId, ev.agentType, null, ev.ts);
     s.agents.set(key, a);
-    if (s.agents.size > LIVE_AGENTS_MAX) { // drop the oldest finished subagent
-      for (const [k, x] of s.agents) if (k && x.phase === 'done') { s.agents.delete(k); break; }
-    }
+    if (s.agents.size > LIVE_AGENTS_MAX) dropAgent(s, a);
   }
   if (ev.ts > s.lastTs) s.lastTs = ev.ts;
   if (ev.ts > a.lastTs) a.lastTs = ev.ts;
   if (ev.agentType && !a.agentType) a.agentType = ev.agentType;
   if (ev.model) { a.model = ev.model; if (!key || !s.model) s.model = ev.model; }
+  let frozen = false; // a finished subagent: the tail of its transcript (hand-back result, ...) must not bring it back
+  if (key && a.phase === 'done') {
+    if (REVIVES.has(ev.kind) && ev.ts > a.endedTs + (a.endGrace || 0)) { // it was resumed (SendMessage) -> alive again
+      delete a.endedTs; delete a.endStatus; a.endGrace = 0;
+    } else frozen = ev.kind !== 'request' && ev.kind !== 'subagent_end' && ev.kind !== 'subagent_start';
+  }
+  if (frozen) return;
   switch (ev.kind) {
     case 'prompt':
       setPhase(a, 'generating', ev.ts); a.currentTool = null; a.open.clear();
-      if (!ev.sidechain) {
+      // injected turns (task-notification, peer messages, …) continue the user's turn: keep showing the human prompt
+      if (!ev.sidechain && (!ev.origin || ev.origin === 'human')) {
         s.promptText = ev.text.slice(0, 200); s.promptTs = ev.ts;
-        if (!ev.origin || ev.origin === 'human') s.turn = { requests: 0, cost: 0, tokens: 0, output: 0, startedTs: ev.ts };
+        s.turn = { requests: 0, cost: 0, tokens: 0, output: 0, startedTs: ev.ts };
       }
       break;
     case 'text': case 'thinking':
@@ -1078,7 +1134,7 @@ function applyEvent(s, ev) {
       if (ev.desc) a.desc = ev.desc;
       break;
     case 'subagent_end':
-      setPhase(a, 'done', ev.ts); a.currentTool = null; a.open.clear(); a.endedTs = ev.ts;
+      if (key) markDone(a, ev.ts, ev.endStatus);
       break;
     default:
   }
@@ -1104,6 +1160,47 @@ function liveEmit(kind, c, fields) {
   return ev;
 }
 
+// A subagent is over: end_turn, a SubagentHandback call, or the parent's task-notification. Emits one subagent_end;
+// a second signal for the same ending (hand-back, then notification) only improves endStatus.
+function liveEndAgent(base, agentId, ts, status) {
+  const s = liveSession(base);
+  const a = s.agents.get(agentId);
+  if (!a) {
+    if (status === 'end_turn') return;
+    s.pendingEnds.delete(agentId);
+    s.pendingEnds.set(agentId, { ts, status });
+    if (s.pendingEnds.size > LIVE_PENDING_ENDS) s.pendingEnds.delete(s.pendingEnds.keys().next().value);
+    return;
+  }
+  if (a.phase === 'done') {
+    const d = ts - a.endedTs;
+    if (Math.abs(d) <= LIVE_END_DUP_MS) { if ((END_RANK[status] || 0) > (END_RANK[a.endStatus] || 0)) a.endStatus = status; return; }
+    if (d < 0) return; // an older ending seen out of order
+  }
+  liveEmit('subagent_end', { ...base, ts, agentId, agentType: a.agentType || base.agentType || null, sidechain: true }, { agentId, endStatus: status });
+}
+
+const HANDBACK = /hand_?back/i;
+const NOTE_STATUS = [[/^(completed?|done|success(ful)?|finished)$/, 'completed'], [/^(killed|stopped|cancel+ed|aborted)$/, 'killed'], [/^(failed|error(ed)?)$/, 'failed']];
+
+// <task-notification><task-id>AGENT</task-id>...<status>completed|killed|failed</status>... in the parent session
+function liveNotifications(o, text, ts, project) {
+  const re = /<task-notification>([\s\S]*?)(?:<\/task-notification>|$)/g;
+  const base = {
+    ts, sessionId: o.sessionId, promptId: null, agentId: null, agentType: null, sidechain: false, model: null, project, entrypoint: o.entrypoint || null,
+    agentMeta: null, silent: ts < liveNow - LIVE_EMIT_MS,
+  };
+  let m;
+  for (let n = 0; n < 20 && (m = re.exec(text)); n++) {
+    const id = /<task-id>\s*([^<\s]{1,80})\s*<\/task-id>/.exec(m[1]);
+    const st = /<status>\s*([^<]{1,40}?)\s*<\/status>/.exec(m[1]);
+    if (!id || !st) continue;
+    const word = st[1].toLowerCase();
+    const hit = NOTE_STATUS.find(([rx]) => rx.test(word));
+    if (hit) liveEndAgent(base, id[1], ts, hit[1]);
+  }
+}
+
 // first record of a subagent transcript
 function liveAgentStart(c) {
   if (!c.sidechain || !c.agentId) return;
@@ -1115,6 +1212,11 @@ function liveAgentStart(c) {
     return;
   }
   liveEmit('subagent_start', c, { agentId: c.agentId, agentType: c.agentType, desc: (meta && meta.desc) || null, toolUseId: (meta && meta.toolUseId) || null });
+  const pe = s.pendingEnds.get(c.agentId); // its task-notification was read before its own transcript (startup order, or a late file)
+  if (pe) {
+    s.pendingEnds.delete(c.agentId);
+    if (c.ts <= pe.ts + LIVE_END_GRACE_MS) liveEndAgent(c, c.agentId, pe.ts, pe.status);
+  }
 }
 
 function liveUser(o, c, kind, lv, file) {
@@ -1130,6 +1232,7 @@ function liveUser(o, c, kind, lv, file) {
       const t = LV.tools.get(b.tool_use_id);
       LV.tools.delete(b.tool_use_id);
       liveEmit('tool_result', lv, { toolUseId: b.tool_use_id, tool: t ? t.tool : null, isError: !!b.is_error, durationMs: t ? Math.max(0, lv.ts - t.ts) : null });
+      if (t && lv.sidechain && lv.agentId && HANDBACK.test(t.tool)) liveEndAgent(lv, lv.agentId, lv.ts, 'handback');
     }
   }
   if (lv.sidechain) return;
@@ -1168,6 +1271,7 @@ function liveAssistant(o, msg, lv, file) {
       LV.tools.set(id, { tool: b.name, ts: lv.ts });
       if (LV.tools.size > 4000) LV.tools.delete(LV.tools.keys().next().value);
       liveEmit('tool_use', lv, { tool: b.name, toolUseId: id, summary: toolSummary(b.name, b.input) });
+      if (lv.sidechain && lv.agentId && HANDBACK.test(b.name)) liveEndAgent(lv, lv.agentId, lv.ts, 'handback');
     }
   });
 }
@@ -1195,7 +1299,7 @@ function liveEmitRequest(p, how) {
   const ended = TURN_END.has(r.stopReason) || (!r.stopReason && how === 'timer' && !r.tools.length && !!r.response);
   if (!ended) return;
   if (c.sidechain) {
-    if (c.agentId) liveEmit('subagent_end', c, { agentId: c.agentId });
+    if (c.agentId) liveEndAgent(c, c.agentId, c.ts, 'end_turn');
   } else liveEmit('turn_end', c, { stopReason: r.stopReason || null, ...(r.stopReason ? {} : { inferred: true }) });
 }
 
@@ -1240,30 +1344,53 @@ function liveTotals(now) {
   return LV.totals;
 }
 
-function liveState() {
-  const now = Date.now();
+// What the API reports for one agent at `now`. Claude Code never says "I am still alive", so quiet agents are
+// derived: generating > 180 s / tool > 15 min without events -> idle (stale); a subagent idle for 10 more minutes
+// that never ended -> done, endStatus 'unknown'. Any later event revives it (applyEvent).
+function agentView(a, now) {
+  let phase = a.phase;
+  let stale = false;
+  let endedTs = a.endedTs;
+  let endStatus = a.endStatus;
+  const lim = phase === 'generating' ? LIVE_STALE_GEN_MS : phase === 'tool' ? LIVE_STALE_TOOL_MS : Infinity;
+  const quiet = now - a.lastTs;
+  if (quiet > lim) {
+    if (a.agentId && quiet > lim + LIVE_UNKNOWN_MS) { phase = 'done'; endedTs = a.lastTs; endStatus = 'unknown'; } else { phase = 'idle'; stale = true; }
+  }
+  return {
+    agentId: a.agentId, agentType: a.agentType, desc: a.desc, model: a.model, phase, phaseSince: phase === a.phase ? a.phaseSince : a.lastTs,
+    currentTool: phase === a.phase && a.currentTool ? { ...a.currentTool } : null, requests: a.requests, cost: a.cost, startedTs: a.startedTs, lastTs: a.lastTs,
+    ...(phase === 'done' ? { endedTs, endStatus } : {}), ...(stale ? { stale: true } : {}),
+  };
+}
+
+function liveState(nowArg) {
+  const now = nowArg == null ? Date.now() : nowArg;
   const t = liveTotals(now);
   const sessions = [];
   for (const s of LV.sessions.values()) {
     if (now - s.lastTs > LIVE_KEEP_MS) continue;
     const idle = now - s.lastTs > LIVE_IDLE_MS;
-    const agents = [...s.agents.values()].map((a) => ({
-      agentId: a.agentId, agentType: a.agentType, desc: a.desc, model: a.model, phase: idle && a.phase !== 'done' ? 'idle' : a.phase,
-      phaseSince: a.phaseSince, currentTool: a.currentTool ? { ...a.currentTool } : null, requests: a.requests, cost: a.cost, lastTs: a.lastTs,
-      ...(a.endedTs ? { endedTs: a.endedTs } : {}),
-    }));
-    const main = s.agents.get('');
-    let phase = main.phase;
-    if (phase === 'idle' && agents.some((a) => a.agentId && a.phase !== 'done' && a.phase !== 'idle')) phase = 'generating';
+    const agents = [];
+    let mainView = null;
+    for (const a of s.agents.values()) {
+      const v = agentView(a, now);
+      if (idle && v.phase !== 'done') { v.phase = 'idle'; v.currentTool = null; }
+      agents.push(v);
+      if (!a.agentId) mainView = v;
+    }
+    let phase = mainView.phase;
+    if (phase === 'idle' && agents.some((a) => a.agentId && (a.phase === 'generating' || a.phase === 'tool'))) phase = 'generating';
     if (idle) phase = 'idle';
     const known = store.sessions[s.sessionId] || {};
     sessions.push({
       sessionId: s.sessionId, title: sessionTitle(s.sessionId), project: s.project, model: s.model, entrypoint: s.entrypoint,
       startedTs: known.first && known.first < s.startedTs ? known.first : s.startedTs, lastTs: s.lastTs,
-      phase, phaseSince: idle ? Math.min(main.phaseSince, s.lastTs) : main.phaseSince,
-      currentTool: idle || !main.currentTool ? null : { ...main.currentTool },
+      phase, phaseSince: idle ? Math.min(mainView.phaseSince, s.lastTs) : mainView.phaseSince,
+      currentTool: idle || !mainView.currentTool ? null : { ...mainView.currentTool },
       promptText: s.promptText, promptTs: s.promptTs, context: { tokens: s.ctxTokens, limit: LIVE_CTX_LIMIT },
       agents, turn: { ...s.turn }, recent: s.recent.slice(),
+      ...(mainView.stale ? { stale: true } : {}),
     });
   }
   sessions.sort((a, b) => b.lastTs - a.lastTs);

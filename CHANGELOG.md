@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-11
+
+### Added
+
+- **Live view**: a real-time tab streaming what Claude Code is doing, over Server-Sent Events fed by a file watcher
+  (events arrive within milliseconds): status with a running timer, rolling cost and token counters, a streaming
+  activity chart, the agent constellation with subagents, tool-call swimlanes, context gauge, current turn and event
+  feed. Resume via `Last-Event-ID`, polling fallback, simulated live session in the GitHub Pages demo.
+- `scripts/live-stress.js`: real-time synthetic load (main session plus N background subagents) for testing.
+
+### Fixed
+
+- Background subagents are now marked done: Claude Code ends them with a `SubagentHandback` tool call and a parent
+  `<task-notification>` (completed, killed or failed) instead of `end_turn`, so they no longer show as
+  "generating" forever.
+- Quiet agents become idle after 3 minutes generating (15 minutes in a tool); never-ending subagents are closed as
+  unknown after 10 more minutes; a restart rebuilds the live state of recent transcripts.
+- The Live view stays legible with any number of subagents: up to six active nodes, "+N more", a Finished tray with
+  status, duration and cost, scrollable tool lanes labelled by task, and compact numbers on narrow screens.
+- The current turn keeps showing the prompt you typed when an injected turn (task notification) arrives, and injected
+  `<browser_instruction>` notices are stripped from prompt text.
+
 ## [1.0.0] - 2026-10-11
 
 ### Added

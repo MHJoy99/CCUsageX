@@ -148,9 +148,9 @@
           reqLog[f.key] = ev; if (promptLog[s.promptId]) promptLog[s.promptId].reqs.push(f.key);
           break;
         case 'subagent_start':
-          s.agents.push({ agentId: f.agentId, agentType: f.agentType, desc: f.desc, model: f.model, phase: 'generating', phaseSince: ts, currentTool: null, requests: 0, cost: 0, lastTs: ts });
+          s.agents.push({ agentId: f.agentId, agentType: f.agentType, desc: f.desc, model: f.model, phase: 'generating', phaseSince: ts, currentTool: null, requests: 0, cost: 0, lastTs: ts, startedTs: ts });
           break;
-        case 'subagent_end': if (a) { a.phase = 'done'; a.currentTool = null; } break;
+        case 'subagent_end': if (a) { a.phase = 'done'; a.currentTool = null; a.endedTs = ts; a.endStatus = f.endStatus || 'end_turn'; a.stale = false; } break;
         case 'turn_end': s.phase = 'waiting_user'; s.phaseSince = ts; s.currentTool = null; main.phase = 'waiting_user'; main.phaseSince = ts; main.currentTool = null; break;
         case 'title': s.title = f.title; break;
       }
@@ -216,7 +216,62 @@
       });
     }
 
+
+    /* Burst scenario: one prompt fans out ~12 background subagents (like a real Claude Code session with many helpers).
+       They finish at different times through SubagentHandback; one is killed, one fails, one stalls and goes idle. */
+    var BG = [
+      ['Audit dependencies in packages/api', 'Explore', HAIKU, 'handback'], ['Check license headers in packages/ui', 'Explore', HAIKU, 'handback'],
+      ['Profile bundle size for packages/web', 'general-purpose', SONNET, 'handback'], ['Lint packages/auth for unsafe patterns', 'general-purpose', SONNET, 'handback'],
+      ['Verify migrations in packages/db', 'general-purpose', SONNET, 'killed'], ['Review error handling in packages/queue', 'Explore', HAIKU, 'handback'],
+      ['Scan packages/billing for float math', 'general-purpose', SONNET, 'handback'], ['Summarize public API of packages/sdk', 'Explore', HAIKU, 'handback'],
+      ['Find dead exports in packages/utils', 'Explore', HAIKU, 'failed'], ['Test flaky specs in packages/search', 'general-purpose', SONNET, 'handback'],
+      ['Benchmark startup time of packages/cli', 'general-purpose', SONNET, 'stall'], ['Map env vars used by packages/worker', 'Explore', HAIKU, 'handback']
+    ];
+    var BG_TOOLS = [['Grep', 'import .* from'], ['Read', 'package.json'], ['Glob', 'src/**/*.ts'], ['Bash', 'npx tsc --noEmit -p .'], ['Read', 'src/index.ts'], ['Grep', 'TODO|FIXME'], ['Bash', 'wc -l src/**/*.ts'], ['Read', 'README.md']];
+    function runBg(s, sp, i) {
+      var id = 'ag_' + (uid++).toString(16) + 'b' + i, ag = { agentId: id, agentType: sp[1], model: sp[2] };
+      var useId = 'tu_' + (uid++), main = { agentId: null };
+      emit(s, 'tool_use', Object.assign({ tool: 'Agent', toolUseId: useId, summary: sp[0] }, main));
+      return sleep(180).then(function () {
+        emit(s, 'tool_result', Object.assign({ toolUseId: useId, tool: 'Agent', isError: false, durationMs: 180 }, main));
+        emit(s, 'subagent_start', Object.assign({ desc: sp[0] }, ag));
+        var n = sp[3] === 'stall' ? 1 : ri(5, 9), p = Promise.resolve();
+        for (var k = 0; k < n; k++) (function (k) {
+          p = p.then(function () {
+            var t = BG_TOOLS[(i * 3 + k) % BG_TOOLS.length], t2 = BG_TOOLS[(i * 5 + k + 2) % BG_TOOLS.length];
+            return step(s, ag, { gen: rr(2400, 5600), tools: k % 2 ? [{ tool: t[0], summary: t[1], dur: ri(400, 1800) }, { tool: t2[0], summary: t2[1], dur: ri(300, 1200) }] : [{ tool: t[0], summary: t[1], dur: ri(500, 2600) }] });
+          });
+        })(k);
+        return p.then(function () {
+          if (sp[3] === 'stall') {            // no handback, no notification: the server marks it idle after a quiet spell
+            return sleep(24000).then(function () { var a = agentRec(s, id); if (a && a.phase !== 'done') { a.phase = 'idle'; a.stale = true; a.currentTool = null; } });
+          }
+          if (sp[3] === 'handback') {
+            return step(s, ag, { gen: rr(1500, 3000), tools: [{ tool: 'SubagentHandback', summary: 'report ready', dur: 260 }] }).then(function () {
+              request(s, ag, { out: ri(300, 700), stop: 'end_turn' });
+              emit(s, 'subagent_end', Object.assign({ endStatus: 'handback' }, ag));
+            });
+          }
+          return sleep(rr(1200, 2400)).then(function () { emit(s, 'subagent_end', Object.assign({ endStatus: sp[3] }, ag)); });
+        });
+      });
+    }
+    function runBurst(s) {
+      var main = { agentId: null }, all = [], chain = Promise.resolve();
+      var first = step(s, main, { think: 1, text: 'This monorepo has twelve packages. I will give each one to a background helper and keep working in parallel.', out: 700, stop: 'tool_use', tools: [] });
+      return first.then(function () {
+        BG.forEach(function (sp, i) { chain = chain.then(function () { return sleep(rr(300, 620)); }).then(function () { all.push(runBg(s, sp, i)); }); });
+        var mainWork = [[{ tool: 'Read', summary: 'turbo.json', dur: 300 }], [{ tool: 'Bash', summary: 'git log --oneline -20', dur: 900 }], [{ tool: 'Grep', summary: 'workspaces', dur: 420 }]].reduce(function (p, tools) {
+          return p.then(function () { return step(s, main, { gen: rr(6000, 9000), text: 'Checking the workspace layout while the helpers run.', tools: tools }); });
+        }, Promise.resolve());
+        return Promise.all([chain.then(function () { return Promise.all(all); }), mainWork]);
+      }).then(function () {
+        return step(s, main, { think: 1, gen: 1500, text: 'Ten helpers reported back, one was stopped, one failed and one went quiet. Findings are summarized per package.', out: 1200, stop: 'end_turn', tools: [] });
+      });
+    }
+
     var TURNS = [
+      { prompt: 'Audit every package in the monorepo', burst: true, pause: 42000 },
       { prompt: 'Refactor the auth middleware to use signed session tokens', steps: [
         { think: 1, text: "I'll start by reading the current middleware and finding where sessions are verified.", tools: [
           { tool: 'Read', summary: 'src/auth/middleware.ts', dur: 380 }, { tool: 'Grep', summary: 'verifySession', dur: 640 }, { tool: 'Glob', summary: 'src/**/*.test.ts', dur: 300 }] },
@@ -268,8 +323,9 @@
         var t = turns[n++ % turns.length];
         emit(s, 'prompt', { text: t.prompt, promptId: 'sim-prompt-' + (uid++) });
         var p = Promise.resolve();
-        t.steps.forEach(function (d) { p = p.then(function () { return step(s, { agentId: null }, d); }); });
-        return p.then(function () { emit(s, 'turn_end', {}); return sleep(pause()); }).then(turn);
+        if (t.burst) p = runBurst(s);
+        else t.steps.forEach(function (d) { p = p.then(function () { return step(s, { agentId: null }, d); }); });
+        return p.then(function () { emit(s, 'turn_end', {}); return sleep(t.pause || pause()); }).then(turn);
       }
       sleep(firstDelay).then(turn);
     }
@@ -298,7 +354,7 @@
       emit(B, 'prompt', { text: 'Fix the broken sidebar links', promptId: 'sim-prompt-' + (uid++) }, Date.now() - 74000);
       emit(B, 'turn_end', {}, Date.now() - 52000);
       setInterval(function () { if (subs.length) { var st = state(); subs.forEach(function (c) { c._emit('state', st); }); } }, 1000);
-      loopSession(A, TURNS, 900, function () { return rr(11000, 16000); });
+      loopSession(A, TURNS, 1500, function () { return rr(11000, 16000); });
       loopSession(B, TURNS_B, 13000, function () { return rr(22000, 34000); });
     }
 

@@ -87,7 +87,9 @@
     cross: 'M6 6l12 12M18 6L6 18',
     flag: 'M5 21V4M5 4h12l-2 4 2 4H5',
     tag: 'M4 4h8l8 8-8 8-8-8zM8 8h.01',
-    todo: 'M5 6l2 2 3-3M5 14l2 2 3-3M13 7h7M13 15h7'
+    todo: 'M5 6l2 2 3-3M5 14l2 2 3-3M13 7h7M13 15h7',
+    pause: 'M8 5v14M16 5v14',
+    chevron: 'M6 9l6 6 6-6'
   };
   var PATH2D = {};
   function iconSvg(name) {
@@ -203,7 +205,7 @@
   var M = {
     sessions: {}, selected: null, follow: true, skew: 0, haveState: false, conn: 'connecting', maxId: 0,
     today: { requests: 0, cost: 0, tokens: 0, output: 0 }, rate: { tokensPerMin: 0, costPerMin: 0, requestsPerMin: 0 },
-    tw: {}, seen: {}, seenN: 0, lastMsg: 0
+    tw: {}, seen: {}, seenN: 0, lastMsg: 0, finOpen: true
   };
   function resetTweens() {
     M.tw = { cost: mkTw(0, 0.55), tokens: mkTw(0, 0.55), requests: mkTw(0, 0.45), tpm: mkTw(0, 0.9), cpm: mkTw(0, 0.9), rpm: mkTw(0, 0.9) };
@@ -228,7 +230,7 @@
       a = s.agents[key] = {
         key: key, agentId: key === 'main' ? null : key, agentType: key === 'main' ? 'main' : '', desc: '', model: '',
         phase: 'idle', phaseSince: 0, currentTool: null, requests: 0, cost: 0, lastTs: 0,
-        born: Date.now(), doneAt: 0, x: 0, y: 0, tx: 0, ty: 0, placed: false, pulse: 0, ph: 0
+        born: Date.now(), doneAt: 0, endTs: 0, endStatus: '', firstTs: 0, stale: false, x: 0, y: 0, tx: 0, ty: 0, placed: false, pulse: 0, ph: 0
       };
       s.order.push(key);
     }
@@ -245,14 +247,34 @@
   function normPhase(key, p) {
     if (p === 'generating' || p === 'tool') return p;
     if (key === 'main') return p === 'waiting_user' ? p : 'idle';
-    return 'done';
+    return p === 'idle' ? 'idle' : 'done';
   }
   function setAgentPhase(a, p, since) {
     p = normPhase(a.key, p);
-    if (p === 'done' && a.phase !== 'done') a.doneAt = Date.now() - Math.max(0, serverNow() - (a.lastTs || serverNow()));
-    if (p !== 'done') a.doneAt = 0;
+    if (p === 'done' && a.phase !== 'done') a.doneAt = Date.now() - Math.max(0, serverNow() - (a.endTs || a.lastTs || serverNow()));
+    if (p !== 'done') { a.doneAt = 0; if (a.phase === 'done') { a.endTs = 0; a.endStatus = ''; } }
     a.phase = p;
     if (since) a.phaseSince = since;
+  }
+  /* Truthful phases. The server marks quiet agents idle (stale:true); if it does not, the UI applies the same rule itself:
+     generating with no events for 180 s, or a tool with none for 15 min, is idle - never "generating 23m". */
+  var QUIET_GEN = 180000, QUIET_TOOL = 900000;
+  function effAgentPhase(a, sn) {
+    var p = a.phase;
+    if (p === 'done') return 'done';
+    if (p === 'generating' || p === 'tool') {
+      if (a.stale) return 'idle';
+      var q = sn - num(a.lastTs || a.phaseSince);
+      if ((p === 'generating' && q > QUIET_GEN) || (p === 'tool' && q > QUIET_TOOL)) return 'idle';
+    }
+    return p;
+  }
+  function quiet(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return s + 's';
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + 'm';
+    return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
   }
 
   function markSeen(id) {
@@ -283,6 +305,13 @@
     }
     if (ev.model) { a.model = ev.model; if (key === 'main') s.model = ev.model; }
     a.lastTs = Math.max(a.lastTs, ts);
+    if (!a.firstTs || ts < a.firstTs) a.firstTs = ts;
+    var recent = serverNow() - ts < 60000;
+    if (recent && ev.kind !== 'subagent_end' && ev.kind !== 'title') {      // any fresh event proves the agent is alive again
+      a.stale = false;
+      if (a.phase === 'idle' && key !== 'main' && (ev.kind === 'text' || ev.kind === 'thinking' || ev.kind === 'request')) { a.phase = 'generating'; a.phaseSince = ts; }
+      if (key === 'main' && s.phase === 'idle' && (ev.kind === 'text' || ev.kind === 'thinking' || ev.kind === 'request')) { s.stale = false; setPhase(s, 'generating', ts); a.phase = 'generating'; a.phaseSince = ts; }
+    }
     if (ev.promptId) s.promptId = ev.promptId;
     var uid;
     switch (ev.kind) {
@@ -300,7 +329,7 @@
         uid = ev.toolUseId || ('e' + ev.id);
         var bar = { id: uid, key: key, tool: ev.tool || 'tool', summary: ev.summary || '', start: ts, end: 0, isError: false, running: true, dur: 0 };
         s.tools.push(bar); s.toolIdx[uid] = bar; s.toolEv[uid] = ev;
-        a.phase = 'tool'; a.phaseSince = ts; a.currentTool = { tool: bar.tool, summary: bar.summary, since: ts };
+        if (a.phase !== 'done') { a.phase = 'tool'; a.phaseSince = ts; a.currentTool = { tool: bar.tool, summary: bar.summary, since: ts }; }
         if (key === 'main') { setPhase(s, 'tool', ts); s.currentTool = a.currentTool; }
         addImpulse(s, ts, 0.38);
         if (s.tools.length > 400) pruneTools(s);
@@ -316,7 +345,7 @@
         if (s.toolEv[b.id]) { s.toolEv[b.id].res = { isError: b.isError, dur: b.dur }; feedTouchTool(s, b.id); } else { ev.res = { isError: b.isError, dur: b.dur }; }
         if (animate) fxAdd(s, { type: 'dock', key: key, color: b.isError ? 'crit' : 'tool', tool: b.tool, ok: !b.isError, dur: 900 });
         a.currentTool = runningTool(s, key);
-        a.phase = a.currentTool ? 'tool' : 'generating'; a.phaseSince = ts;
+        if (a.phase === 'done') a.currentTool = null; else { a.phase = a.currentTool ? 'tool' : 'generating'; a.phaseSince = ts; }
         if (key === 'main') { s.currentTool = a.currentTool; setPhase(s, a.phase, ts); }
         addImpulse(s, ts, b.isError ? -0.5 : -0.3);
         break;
@@ -325,12 +354,12 @@
         break;
       case 'subagent_start':
         a.agentType = ev.agentType || a.agentType; a.desc = ev.desc || a.desc;
-        a.phase = 'generating'; a.phaseSince = ts; a.doneAt = 0;
+        a.phase = 'generating'; a.phaseSince = ts; a.doneAt = 0; a.endTs = 0; a.endStatus = ''; a.stale = false; a.firstTs = Math.min(a.firstTs || ts, ts);
         if (animate) { a.born = now; a.placed = false; fxAdd(s, { type: 'packet', from: 'main', to: key, color: 'accent', dur: 800 }); }
         addImpulse(s, ts, 0.5);
         break;
       case 'subagent_end':
-        a.phase = 'done'; a.doneAt = animate ? now : now - Math.max(0, serverNow() - ts); a.currentTool = null;
+        a.phase = 'done'; a.doneAt = animate ? now : now - Math.max(0, serverNow() - ts); a.currentTool = null; a.endTs = ts; a.endStatus = ev.endStatus || a.endStatus || 'completed'; a.stale = false;
         closeTools(s, key, ts);
         if (animate) fxAdd(s, { type: 'packet', from: key, to: 'main', color: 'good', dur: 800 });
         addImpulse(s, ts, 0.45);
@@ -381,7 +410,7 @@
     if (a.key === 'main' && !ev.sidechain) { var ctx = inp + cr + cw; if (ctx > 0) s.context.tokens = ctx; }
     if (animate) {
       a.pulse = 1;
-      fxAdd(s, { type: 'float', key: a.key, text: '↑' + fmtTok(out), sub: fmtCost(cost, 3), dur: 1900 });
+      if (a.key === 'main' && !s.fx.some(function (f) { return f.type === 'float' && f.key === 'main' && Date.now() - f.t0 < 900; })) fxAdd(s, { type: 'float', key: a.key, text: '↑' + fmtTok(out), sub: fmtCost(cost, 3), dur: 1900 });
     }
     addImpulse(s, ts, 0.55 + 0.4 * Math.min(1, out / 2000));
     if (ev.stopReason === 'end_turn' && a.key !== 'main') a.lastEnd = ts;
@@ -406,6 +435,7 @@
     if (ss.model) s.model = ss.model;
     if (ss.entrypoint) s.entrypoint = ss.entrypoint;
     if (ss.startedTs) s.startedTs = ss.startedTs;
+    s.stale = !!ss.stale;
     if (ss.lastTs) s.lastTs = Math.max(s.lastTs, ss.lastTs);
     // events first (stream mode: already seen -> no-ops; poll mode: they animate in)
     var rec = (ss.recent || []).slice().sort(function (x, y) { return num(x.id) - num(y.id) || num(x.ts) - num(y.ts); });
@@ -426,6 +456,11 @@
       if (ag.model) a.model = ag.model;
       a.requests = num(ag.requests); a.cost = num(ag.cost);
       a.lastTs = Math.max(a.lastTs, num(ag.lastTs));
+      a.stale = !!ag.stale;
+      if (ag.endStatus) a.endStatus = String(ag.endStatus);
+      if (ag.endedTs) a.endTs = num(ag.endedTs);
+      var st0 = num(ag.startedTs || ag.startTs || ag.firstTs);
+      if (st0 && (!a.firstTs || st0 < a.firstTs)) a.firstTs = st0;
       var ph = ag.phase || a.phase;
       if (!(key !== 'main' && a.phase === 'done' && (ph === 'generating' || ph === 'tool') && Date.now() - a.doneAt < 1500)) setAgentPhase(a, ph, ag.phaseSince);
       a.currentTool = ag.currentTool || null;
@@ -521,8 +556,11 @@
       '</article></div>' +
 
       '<div class="lv-grid2">' +
-      '<article class="lv-card lv-tree"><div class="lv-ch"><div><h3>Agents</h3><p class="cap">The main agent and its subagents. Packets fly on spawn and return; rings show the phase.</p></div><div class="lv-legend" id="lv-tree-legend"></div></div><div class="lv-cv" id="lv-tree-cv"><canvas id="lv-tree"></canvas><div class="lv-nodes" id="lv-nodes"></div></div></article>' +
-      '<article class="lv-card lv-lanes"><div class="lv-ch"><div><h3>Tool calls</h3><p class="cap">One lane per agent, last minute. Running calls grow in real time.</p></div><div class="lv-legend" id="lv-lane-legend"></div></div><div class="lv-cv" id="lv-lanes-cv"><canvas id="lv-lanes"></canvas></div></article>' +
+      '<article class="lv-card lv-tree" id="lv-tree-card" data-sz="compact"><div class="lv-ch"><div><h3>Agents</h3><p class="cap">The main agent and up to six active subagents; finished ones move to the list below. Packets fly on spawn and return.</p></div><div class="lv-legend" id="lv-tree-legend"></div></div>' +
+      '<div class="lv-cv" id="lv-tree-cv"><canvas id="lv-tree"></canvas><div class="lv-nodes" id="lv-nodes"></div><button type="button" class="lv-more" id="lv-more" hidden aria-expanded="false"><span id="lv-more-t"></span>' + iconSvg('chevron') + '</button></div>' +
+      '<div class="lv-ovf" id="lv-ovf" hidden><div class="lv-fh"><b id="lv-ovf-n"></b></div><div class="lv-fl" id="lv-ovf-l"></div></div>' +
+      '<div class="lv-fin" id="lv-fin" hidden data-open="1"><div class="lv-fh"><button type="button" class="lv-fin-t" id="lv-fin-t" aria-expanded="true">' + iconSvg('chevron') + '<b id="lv-fin-n">Finished (0)</b></button><span class="lv-fin-s" id="lv-fin-s"></span></div><div class="lv-fl" id="lv-fin-l"></div></div></article>' +
+      '<article class="lv-card lv-lanes"><div class="lv-ch"><div><h3>Tool calls</h3><p class="cap">Agents with calls in the last minute (scroll for more). Running calls grow in real time.</p></div><div class="lv-legend" id="lv-lane-legend"></div></div><div class="lv-cv lv-lcv" id="lv-lanes-cv"><div class="lv-lscroll" id="lv-lscroll"><canvas id="lv-lanes"></canvas></div><canvas id="lv-laxis" class="lv-laxis"></canvas></div></article>' +
       '</div>' +
 
       '<article class="lv-card lv-feed"><div class="lv-feed-h"><span class="dots"><i></i><i></i><i></i></span><h3>events — newest first</h3><span class="sp"></span><span class="n" id="lv-feed-n"></span><button type="button" class="lv-pause" id="lv-pause" aria-pressed="false" title="Freeze the list while you read">pause</button></div>' +
@@ -537,10 +575,12 @@
     EL.tsReq = $('#lv-ts-req'); EL.tsCost = $('#lv-ts-cost'); EL.tsOut = $('#lv-ts-out'); EL.tsEl = $('#lv-ts-el');
     EL.ringPg = $('#lv-ring-pg'); EL.ringPct = $('#lv-ring-pct'); EL.ctxH = $('#lv-ctx-h'); EL.ctxBar = $('#lv-ctx-bar');
     EL.nodes = $('#lv-nodes'); EL.tlLegend = $('#lv-tl-legend'); EL.treeLegend = $('#lv-tree-legend'); EL.laneLegend = $('#lv-lane-legend');
+    EL.treeCard = $('#lv-tree-card'); EL.more = $('#lv-more'); EL.moreT = $('#lv-more-t'); EL.ovf = $('#lv-ovf'); EL.ovfN = $('#lv-ovf-n'); EL.ovfL = $('#lv-ovf-l');
+    EL.fin = $('#lv-fin'); EL.finT = $('#lv-fin-t'); EL.finN = $('#lv-fin-n'); EL.finS = $('#lv-fin-s'); EL.finL = $('#lv-fin-l'); EL.lscroll = $('#lv-lscroll');
     EL.emptyH = $('#lv-empty-h'); EL.emptyP = $('#lv-empty-p');
     ['cost', 'tokens', 'requests', 'tpm', 'cpm', 'rpm'].forEach(function (k) { EL['m_' + k] = $('#lv-m-' + k); EL['mv_' + k] = $('#lv-mv-' + k); EL['ms_' + k] = $('#lv-ms-' + k); });
-    ['ecg', 'tl', 'tree', 'lanes'].forEach(function (k) { CV[k] = mkCv($('#lv-' + k)); });
-    CV.tl.host = $('#lv-tl-cv'); CV.tree.host = $('#lv-tree-cv'); CV.lanes.host = $('#lv-lanes-cv'); CV.ecg.host = CV.ecg.el;
+    ['ecg', 'tl', 'tree', 'lanes', 'laxis'].forEach(function (k) { CV[k] = mkCv($('#lv-' + k)); });
+    CV.tl.host = $('#lv-tl-cv'); CV.tree.host = $('#lv-tree-cv'); CV.lanes.host = EL.lscroll; CV.lanes.wEl = EL.lscroll; CV.laxis.wEl = EL.lscroll; CV.ecg.host = CV.ecg.el; CV.laxis.host = CV.laxis.el;
 
     EL.chips.addEventListener('click', function (e) {
       var f = e.target.closest('.lv-follow');
@@ -559,6 +599,16 @@
       if ((e.key === 'Enter' || e.key === ' ') && e.target.getAttribute && e.target.getAttribute('role') === 'button') { e.preventDefault(); e.target.click(); }
     });
     EL.prompt.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.hasAttribute('data-prompt')) e.target.click(); });
+    EL.more.addEventListener('click', function () { var s = sel(); if (s) { s.ovfOpen = !s.ovfOpen; UI.rosterDirty = true; } });
+    EL.finT.addEventListener('click', function () { M.finOpen = !M.finOpen; UI.rosterDirty = true; });
+    [EL.ovfL, EL.finL].forEach(function (h) {
+      h.addEventListener('click', function (e) {
+        var r = e.target.closest('.lv-fr'), s = sel();
+        if (!r || !s) return;
+        var k = r.getAttribute('data-k'); s.hl = s.hl === k ? null : k; UI.rosterDirty = true;
+      });
+      h.addEventListener('keydown', function (e) { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('lv-fr')) { e.preventDefault(); e.target.click(); } });
+    });
     wireHover(CV.tl, tlHover); wireHover(CV.tree, treeHover); wireHover(CV.lanes, lanesHover);
     built = true;
   }
@@ -574,8 +624,10 @@
   function fitCv(c) {
     var host = c.host && c.host.getBoundingClientRect ? c.host : c.el;
     var r = host.getBoundingClientRect();
-    var w = Math.max(10, Math.round(r.width)), h = Math.max(10, Math.round(r.height));
+    var w = Math.max(10, Math.round(c.wEl ? c.wEl.clientWidth : r.width)), h = Math.max(10, Math.round(c.fixedH || r.height));
     var d = Math.min(2, window.devicePixelRatio || 1);
+    if (c.wEl) c.el.style.width = w + 'px';
+    if (c.fixedH) c.el.style.height = h + 'px';
     if (w !== c.w || h !== c.h || d !== c.dpr) { c.w = w; c.h = h; c.dpr = d; c.el.width = Math.round(w * d); c.el.height = Math.round(h * d); }
     c.dirty = false;
   }
@@ -743,8 +795,10 @@
   function phaseLabel(p) { return p === 'generating' ? 'generating' : p === 'tool' ? 'running a tool' : p === 'waiting_user' ? 'waiting for you' : 'idle'; }
   function effPhase(s, now) {
     if (!s) return 'idle';
-    if (s.phase === 'idle') return 'idle';
-    if (now - s.lastTs > 600000) return 'idle';
+    if (s.phase === 'idle' || s.stale) return 'idle';
+    var q = now - s.lastTs;
+    if (q > 600000) return 'idle';
+    if ((s.phase === 'generating' && q > QUIET_GEN) || (s.phase === 'tool' && q > QUIET_TOOL)) return 'idle';
     return s.phase;
   }
   function renderChips(now) {
@@ -763,12 +817,17 @@
 
   /* ================================================================== status + hero */
   function mainAgent(s) { return s && s.agents.main; }
+  function activeSubCount(s, sn) {
+    var n = 0;
+    Object.keys(s.agents).forEach(function (k) { if (k === 'main') return; var ph = effAgentPhase(s.agents[k], sn); if (ph === 'generating' || ph === 'tool') n++; });
+    return n;
+  }
   function runningBars(s, key) { return s.tools.filter(function (b) { return b.running && (key == null || b.key === key); }); }
   function statusOf(s, now) {
     var sn = serverNow();
     if (!s) return { ph: 'idle', title: 'Idle', timer: '', since: 0 };
     var ph = effPhase(s, sn);
-    if (ph === 'idle') return { ph: 'idle', title: 'Idle', timer: '', since: 0, note: s.lastTs ? 'last activity ' + ago(sn - s.lastTs) : '' };
+    if (ph === 'idle') return { ph: 'idle', title: 'Idle', timer: '', since: 0, note: s.lastTs ? 'idle · quiet ' + quiet(sn - s.lastTs) + ' · last activity ' + hm(s.lastTs - M.skew) : '' };
     if (ph === 'waiting_user') return { ph: ph, title: 'Waiting for you', timer: fmtSecs(sn - s.phaseSince), since: s.phaseSince };
     var ma = mainAgent(s);
     if (ph === 'tool') {
@@ -778,11 +837,15 @@
       bars.forEach(function (b) { if (!seen[b.tool]) { seen[b.tool] = 1; names.push(b.tool); } });
       if (!names.length) names.push(ct.tool);
       var t = 'Running ' + names.slice(0, 2).join(' + ') + (names.length > 2 ? ' +' + (names.length - 2) : '');
-      var subs = Object.keys(s.agents).filter(function (k) { var a = s.agents[k]; return k !== 'main' && (a.phase === 'generating' || a.phase === 'tool'); }).length;
+      var subs = activeSubCount(s, sn);
       var since = bars.length ? Math.min.apply(null, bars.map(function (b) { return b.start; })) : ct.since;
       return { ph: ph, title: t, timer: fmtSecs(sn - since), since: since, code: ct.summary, tool: ct.tool, subs: subs };
     }
     var since2 = Math.max(s.phaseSince || 0, ma ? ma.lastTs : 0);
+    if (ma && effAgentPhase(ma, sn) !== 'generating') {          // the main agent itself is quiet; what keeps the session live is its subagents
+      var nSub = activeSubCount(s, sn);
+      if (nSub) return { ph: 'generating', title: 'Waiting on ' + nSub + ' subagent' + (nSub === 1 ? '' : 's'), timer: '', since: since2, subs: nSub };
+    }
     return { ph: 'generating', title: 'Claude is generating', dots: true, timer: fmtSecs(sn - since2), since: since2 };
   }
   var HERO_PH = '';
@@ -812,6 +875,7 @@
     ['cost', 'tokens', 'requests', 'tpm', 'cpm', 'rpm'].forEach(function (k) { stepTw(M.tw[k], dt); });
     setText(EL.mv_cost, fmtCost(M.tw.cost.c, 3));
     setText(EL.mv_tokens, fmtInt(M.tw.tokens.c));
+    if (EL.mv_tokens && EL.mv_tokens.scrollWidth > EL.mv_tokens.clientWidth + 1) setText(EL.mv_tokens, fmtTok(M.tw.tokens.c)); // compact when the tile is too narrow
     setText(EL.mv_requests, fmtInt(M.tw.requests.c));
     setText(EL.mv_tpm, fmtTok(M.tw.tpm.c));
     setText(EL.mv_cpm, fmtCost(M.tw.cpm.c, 3));
@@ -831,6 +895,7 @@
     [['cost', dCost > 0 ? '+' + fmtCost(dCost, 3) : ''], ['tokens', dTok > 0 ? '+' + fmtInt(dTok) : '']].forEach(function (p) {
       var host = EL['m_' + p[0]];
       if (!host || !p[1]) return;
+      Array.prototype.forEach.call(host.querySelectorAll('.lv-delta'), function (old) { old.remove(); }); // one chip at a time, never stacked
       var d = document.createElement('span'); d.className = 'lv-delta'; d.textContent = p[1];
       host.appendChild(d);
       d.addEventListener('animationend', function () { d.remove(); });
@@ -1012,27 +1077,62 @@
     return '';
   }
 
-  /* ================================================================== agent constellation */
-  var TREE = { hover: null };
-  function agentVisible(a, now) { return !(a.phase === 'done' && a.doneAt && now - a.doneAt > 50000); }
-  function visibleAgents(s, now) {
-    var keys = s.order.filter(function (k) { return s.agents[k] && agentVisible(s.agents[k], now); });
-    var main = keys.indexOf('main'); if (main > 0) { keys.splice(main, 1); keys.unshift('main'); }
-    return keys;
+  /* ================================================================== agent constellation + roster
+   * At most MAXS (<= 6) ACTIVE subagents are drawn as nodes, in fixed non-overlapping rows to the right of the main agent.
+   * Everything else lives in DOM lists under the graph: "+N more active" (overflow) and "Finished (N)" (done / idle).
+   * Slots are sticky per agent so nodes never swap places while the swarm churns. */
+  var LINGER = 6000;
+  function nodeRadius(a) { return a.key === 'main' ? 26 : 17; }
+  function treeGeom(c) {
+    var W = c.w, H = c.h, narrow = W < 440, mainCol = narrow ? 88 : 132;
+    return { W: W, H: H, narrow: narrow, mainCol: mainCol, subX: mainCol + (narrow ? 31 : 30), maxS: clamp(Math.floor((H - 40) / 50), 2, 6) };
   }
-  function layoutTree(s, keys, c) {
-    var W = c.w, H = c.h, subs = keys.filter(function (k) { return k !== 'main'; }), n = subs.length;
-    var narrow = W < 520;
-    var mainX = n === 0 ? W * 0.5 : (narrow ? Math.max(46, W * 0.15) : Math.max(70, W * 0.17)), mainY = H * 0.5 - (n === 0 ? 14 : 0);
-    var cols = n <= 5 ? 1 : n <= 10 ? 2 : 3;
-    var rows = Math.max(1, Math.ceil(n / cols));
-    var x0 = narrow ? W * 0.5 : W * 0.40, colW = cols === 1 ? 0 : (W - x0 - 150) / (cols - 1 || 1);
-    var pos = { main: { x: mainX, y: mainY } };
-    subs.forEach(function (k, i) {
-      var col = Math.floor(i / rows), row = i % rows;
-      var y = H * (0.5 + (rows === 1 ? 0 : ((row + 0.5) / rows - 0.5) * 0.82));
-      pos[k] = { x: x0 + col * Math.min(colW, 200), y: y, compact: cols > 1 || n > 4 };
+  function isBad(a) { return a.endStatus === 'killed' || a.endStatus === 'failed'; }
+  function endLabel(a) {
+    switch (a.endStatus) {
+      case 'handback': return 'handed back';
+      case 'killed': return 'killed';
+      case 'failed': return 'failed';
+      case 'unknown': return 'ended (no signal)';
+      default: return 'completed';
+    }
+  }
+  function classify(s, sn, maxS) {
+    var G = { active: [], idle: [], done: [], shown: [], overflow: [], tray: [], ph: {}, subs: 0, bad: 0, ok: 0, cost: 0 };
+    s.order.forEach(function (k) {
+      if (k === 'main') return;
+      var a = s.agents[k]; if (!a) return;
+      var ph = effAgentPhase(a, sn); G.ph[k] = ph; G.subs++;
+      if (ph === 'generating' || ph === 'tool') G.active.push(k);
+      else if (ph === 'done') { G.done.push(k); if (isBad(a)) G.bad++; else G.ok++; G.tray.push(k); G.cost += a.cost; }
+      else { G.idle.push(k); G.tray.push(k); G.cost += a.cost; }
     });
+    var slots = s.slots || (s.slots = []), act = {}, i, nowC = Date.now();
+    G.active.forEach(function (k) { act[k] = 1; });
+    slots.length = maxS;
+    for (i = 0; i < maxS; i++) {
+      var k0 = slots[i], a0 = k0 && s.agents[k0];
+      if (!k0 || !a0 || !(act[k0] || (G.ph[k0] === 'done' && a0.doneAt && nowC - a0.doneAt < LINGER))) slots[i] = null;
+    }
+    G.active.forEach(function (k) {
+      if (slots.indexOf(k) >= 0) return;
+      var at = -1;
+      for (i = 0; i < maxS; i++) if (!slots[i]) { at = i; break; }
+      if (at < 0) for (i = 0; i < maxS; i++) if (!act[slots[i]]) { at = i; break; }       // a lingering finished node makes room
+      if (at >= 0) slots[at] = k; else G.overflow.push(k);
+    });
+    for (i = 0; i < maxS; i++) if (slots[i]) G.shown.push(slots[i]);
+    G.tray.sort(function (x, y) { var ax = s.agents[x], ay = s.agents[y]; return trayTs(ay) - trayTs(ax); });
+    return G;
+  }
+  function trayTs(a) { return a.phase === 'done' ? (a.endTs || a.lastTs) : a.lastTs; }
+  function layoutTree(s, G, geo) {
+    var n = G.shown.length, W = geo.W, H = geo.H, pos = {};
+    if (!G.subs) { pos.main = { x: geo.mainCol / 2 + 3, y: H * 0.42 }; return pos; }
+    var top = 14, bot = G.overflow.length ? 38 : 14, availH = H - top - bot, pitch = Math.min(64, availH / Math.max(1, n));
+    pos.main = { x: geo.mainCol / 2 + 3, y: top + availH / 2 - 8 };
+    var y0 = top + availH / 2 - (n - 1) * pitch / 2;
+    G.shown.forEach(function (k, i) { pos[k] = { x: geo.subX, y: y0 + i * pitch }; });
     return pos;
   }
   function bez(p0, p1, c1, c2, t) { var u = 1 - t; return u * u * u * p0 + 3 * u * u * t * c1 + 3 * u * t * t * c2 + t * t * t * p1; }
@@ -1040,43 +1140,41 @@
     var dx = (b.x - a.x) * 0.55;
     return { x: bez(a.x, b.x, a.x + dx, b.x - dx, t), y: bez(a.y, b.y, a.y, b.y, t) };
   }
+  var GR = null;
   function drawTree(now, dt) {
     var c = CV.tree, ctx = prep(c), W = c.w, H = c.h, s = sel(), sn = serverNow();
     c.hits = [];
-    // faint dotted field
     ctx.fillStyle = rgba(PAL.axis, 0.28);
     for (var gx = 14; gx < W; gx += 26) for (var gy = 14; gy < H; gy += 26) ctx.fillRect(gx, gy, 1.4, 1.4);
-    if (!s) { drawTreeEmpty(ctx, W, H); setHtml(EL.nodes, ''); return; }
-    var keys = visibleAgents(s, now), pos = layoutTree(s, keys, c);
-    var mainP = pos.main;
+    if (!s) { drawTreeEmpty(ctx, W, H); setHtml(EL.nodes, ''); NL = {}; GR = null; return; }
+    var geo = treeGeom(c), G = classify(s, sn, geo.maxS); GR = G;
+    var keys = ['main'].concat(G.shown), pos = layoutTree(s, G, geo), mainP = pos.main, shownSet = {};
+    G.shown.forEach(function (k) { shownSet[k] = 1; });
     keys.forEach(function (k) {
       var a = s.agents[k], p = pos[k];
       if (!a.placed && !a.xInit) { a.x = a.key === 'main' ? p.x : mainP.x; a.y = a.key === 'main' ? p.y : mainP.y; a.xInit = true; }
+      if (a.key !== 'main' && a.slotted !== s.id) { a.slotted = s.id; if (!a.xInit) { a.x = mainP.x; a.y = mainP.y; a.xInit = true; } }
       a.tx = p.x; a.ty = p.y;
       var f = REDUCED ? 1 : 1 - Math.exp(-dt / 0.28);
       a.x += (a.tx - a.x) * f; a.y += (a.ty - a.y) * f;
       if (a.placed && !a.xInit) { a.x = a.tx; a.y = a.ty; a.xInit = true; }
       a.pulse = Math.max(0, a.pulse - dt / 1.0);
     });
-    var sub = keys.filter(function (k) { return k !== 'main'; });
     var ma = s.agents.main, mx = ma.x, my = ma.y;
-    // ambient halo behind main
-    var mph = ma.phase, mcol = modelCol(ma.model || s.model);
     // edges
-    sub.forEach(function (k) {
-      var a = s.agents[k], spawnP = REDUCED ? 1 : clamp((now - a.born) / 750, 0, 1), alive = a.phase !== 'done';
-      var A = { x: mx, y: my }, B = { x: a.x, y: a.y };
-      var col = modelCol(a.model), dx = (B.x - A.x) * 0.55;
+    G.shown.forEach(function (k) {
+      var a = s.agents[k], spawnP = REDUCED ? 1 : clamp((now - a.born) / 750, 0, 1), alive = G.ph[k] === 'generating' || G.ph[k] === 'tool';
+      var A = { x: mx, y: my }, B = { x: a.x, y: a.y }, col = modelCol(a.model);
       ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(A.x, A.y);
       var steps = 28, last = Math.max(1, Math.floor(steps * easeOut(spawnP)));
       for (var i = 1; i <= last; i++) { var q = edgePoint(A, B, i / steps); ctx.lineTo(q.x, q.y); }
-      ctx.strokeStyle = alive ? rgba(col, 0.55) : rgba(PAL.axis, 0.4);
-      ctx.lineWidth = alive ? 2 : 1.4;
+      ctx.strokeStyle = alive ? rgba(col, 0.5) : rgba(PAL.axis, 0.4);
+      ctx.lineWidth = alive ? 1.8 : 1.3;
       if (alive && !REDUCED) { ctx.setLineDash([2, 7]); ctx.lineDashOffset = -now / 55; } else ctx.setLineDash([]);
       ctx.stroke(); ctx.setLineDash([]);
     });
-    // effects: packets, docks, floaters
+    // effects: packets + docks (floating numbers only for the main agent: rows are too tight for more)
     var live = [];
     s.fx.forEach(function (f) {
       var age = Date.now() - f.t0;
@@ -1084,65 +1182,70 @@
       live.push(f);
       var p = age / f.dur;
       if (f.type === 'packet') {
-        var from = s.agents[f.from], to = s.agents[f.to];
-        if (!from || !to) return;
-        var A = f.from === 'main' ? { x: from.x, y: from.y } : { x: from.x, y: from.y }, B = { x: to.x, y: to.y };
-        var base = f.from === 'main' ? A : B, other = f.from === 'main' ? B : A;
-        var t = easeOut(p); if (f.from !== 'main') t = 1 - t;      // sub -> main travels back along the same edge
-        var q = edgePoint({ x: mx, y: my }, { x: f.from === 'main' ? to.x : from.x, y: f.from === 'main' ? to.y : from.y }, t);
-        var colr = f.color === 'good' ? PAL.good : PAL.accent;
+        var sk = f.from === 'main' ? f.to : f.from;
+        if (!shownSet[sk]) return;
+        var sa = s.agents[sk], t = easeOut(p); if (f.from !== 'main') t = 1 - t;
+        var colr = f.color === 'good' ? PAL.good : PAL.accent, M0 = { x: mx, y: my }, S0 = { x: sa.x, y: sa.y };
+        var q = edgePoint(M0, S0, t);
         for (var tr = 0; tr < 5; tr++) {
-          var tt = clamp(f.from === 'main' ? t - tr * 0.035 : t + tr * 0.035, 0, 1), qq = edgePoint({ x: mx, y: my }, { x: f.from === 'main' ? to.x : from.x, y: f.from === 'main' ? to.y : from.y }, tt);
+          var tt = clamp(f.from === 'main' ? t - tr * 0.035 : t + tr * 0.035, 0, 1), qq = edgePoint(M0, S0, tt);
           ctx.fillStyle = rgba(colr, (1 - tr / 5) * 0.55 * (1 - p * 0.4)); ctx.beginPath(); ctx.arc(qq.x, qq.y, 5 - tr * 0.7, 0, 7); ctx.fill();
         }
         ctx.fillStyle = colr; ctx.shadowColor = colr; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(q.x, q.y, 4.2, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
       } else if (f.type === 'dock') {
+        if (f.key !== 'main' && !shownSet[f.key]) return;
         var ag = s.agents[f.key]; if (!ag) return;
-        var col2 = f.ok ? PAL.good : PAL.crit, R0 = (f.key === 'main' ? 28 : 20);
-        var rad = R0 + 6 + p * 22;
+        var col2 = f.ok ? PAL.good : PAL.crit, R0 = nodeRadius(ag), sub = f.key !== 'main';
+        var rad = R0 + 6 + p * (sub ? 11 : 22);
         ctx.strokeStyle = rgba(col2, (1 - p) * 0.9); ctx.lineWidth = 2.5 * (1 - p) + 0.5; ctx.beginPath(); ctx.arc(ag.x, ag.y, rad, 0, 7); ctx.stroke();
-        if (p < 0.5) { var tp = easeOut(p / 0.5); var ang = f.ang == null ? (f.ang = Math.random() * 6.28) : f.ang; var oR = R0 + 22; ctx.fillStyle = rgba(toolCol(f.tool), 1 - tp); ctx.beginPath(); ctx.arc(ag.x + Math.cos(ang) * oR * (1 - tp), ag.y + Math.sin(ang) * oR * (1 - tp), 5 * (1 - tp * 0.5), 0, 7); ctx.fill(); }
-        drawIcon(ctx, f.ok ? 'check' : 'cross', ag.x + R0 * 0.78, ag.y - R0 * 0.78, 12, rgba(col2, 1 - p), 3);
+        if (p < 0.5) { var tp = easeOut(p / 0.5); var ang = f.ang == null ? (f.ang = Math.random() * 6.28) : f.ang; var oR = R0 + (sub ? 14 : 22); ctx.fillStyle = rgba(toolCol(f.tool), 1 - tp); ctx.beginPath(); ctx.arc(ag.x + Math.cos(ang) * oR * (1 - tp), ag.y + Math.sin(ang) * oR * (1 - tp), (sub ? 3.6 : 5) * (1 - tp * 0.5), 0, 7); ctx.fill(); }
+        if (!sub) drawIcon(ctx, f.ok ? 'check' : 'cross', ag.x + R0 * 0.78, ag.y - R0 * 0.78, 12, rgba(col2, 1 - p), 3);
       }
     });
     s.fx = live;
-    // satellites for running tool calls
+    // satellites for running tool calls (kept inside the row pitch for subagents)
     keys.forEach(function (k) {
-      var a = s.agents[k], bars = runningBars(s, k);
-      bars.slice(0, 5).forEach(function (b, i) {
-        var R0 = (k === 'main' ? 28 : 20) + 17 + (i % 2) * 11, ang = (REDUCED ? 0 : now / 1000) * (1.5 + i * 0.22) + i * 2.1 + b.start % 6.28;
-        var sx = a.x + Math.cos(ang) * R0, sy = a.y + Math.sin(ang) * R0, col = toolCol(b.tool);
+      var a = s.agents[k], isM = k === 'main', bars = runningBars(s, k), Rn = nodeRadius(a);
+      bars.slice(0, isM ? (G.subs ? 3 : 5) : 2).forEach(function (b, i) {
+        var R0 = isM ? (G.subs ? Rn + 12 + (i % 2) * 7 : Rn + 17 + (i % 2) * 11) : Rn + 11, ang = (REDUCED ? 0 : now / 1000) * (1.5 + i * 0.22) + i * (isM ? 2.1 : 3.14) + b.start % 6.28;
+        var sx = a.x + Math.cos(ang) * R0, sy = a.y + Math.sin(ang) * R0, col = toolCol(b.tool), sr = isM ? 7.5 : 5.2;
         ctx.strokeStyle = rgba(col, 0.22); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(a.x, a.y, R0, 0, 7); ctx.stroke();
         var grow = easeOutBack((sn - b.start) / 350 + 0.2);
-        ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.beginPath(); ctx.arc(sx, sy, 7.5 * Math.min(1, grow), 0, 7); ctx.fill(); ctx.shadowBlur = 0;
-        drawIcon(ctx, toolIconName(b.tool), sx, sy, 10, lum(col) > 0.62 ? '#14121f' : '#fff', 2.6);
-        c.hits.push({ cx: sx, cy: sy, r: 10, bar: b });
+        ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.beginPath(); ctx.arc(sx, sy, sr * Math.min(1, grow), 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+        drawIcon(ctx, toolIconName(b.tool), sx, sy, isM ? 10 : 7.5, lum(col) > 0.62 ? '#14121f' : '#fff', 2.6);
+        c.hits.push({ cx: sx, cy: sy, r: isM ? 10 : 8, bar: b });
       });
     });
     // nodes
-    keys.forEach(function (k) { drawNode(ctx, s, s.agents[k], now, sn); });
-    // empty hint
-    if (!sub.length) {
-      ctx.fillStyle = PAL.muted; ctx.font = '12.5px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.textAlign = 'center'; ctx.fillText('No subagents right now', W / 2, H - 30);
-      ctx.fillStyle = rgba(PAL.muted, 0.7); ctx.font = '11.5px ' + FONT;
-      ctx.fillText('They branch out from the main agent the moment Claude spawns one.', W / 2, H - 13);
+    keys.forEach(function (k) { drawNode(ctx, s, s.agents[k], now, sn, k === 'main' ? effAgentPhase(s.agents.main, sn) : G.ph[k]); });
+    // hints
+    ctx.textBaseline = 'alphabetic';
+    if (!G.subs) {
+      // beside the main node, never under its label
+      var sx0 = geo.mainCol + 18;
+      ctx.textAlign = 'left'; ctx.fillStyle = PAL.text2; ctx.font = '600 12.5px ' + FONT;
+      ctx.fillText('No subagents right now', sx0, pos.main.y - 4);
+      ctx.fillStyle = PAL.muted; ctx.font = '11.5px ' + FONT;
+      ctx.fillText(W < 420 ? 'They appear here when spawned.' : 'They branch out from the main agent the moment Claude spawns one.', sx0, pos.main.y + 13);
+    } else if (!G.shown.length) {
+      var hx = geo.mainCol + 18;
+      ctx.textAlign = 'left'; ctx.fillStyle = PAL.text2; ctx.font = '600 12.5px ' + FONT; ctx.fillText('No active subagents', hx, pos.main.y - 2);
+      ctx.fillStyle = PAL.muted; ctx.font = '11.5px ' + FONT; ctx.fillText(G.tray.length + ' finished or idle, listed below', hx, pos.main.y + 15);
     }
-    // float labels (real request numbers)
+    // float labels (real request numbers), main agent only
     s.fx.forEach(function (f) {
-      if (f.type !== 'float') return;
-      var ag = s.agents[f.key]; if (!ag) return;
-      var p = (Date.now() - f.t0) / f.dur, R0 = f.key === 'main' ? 28 : 20;
+      if (f.type !== 'float' || f.key !== 'main') return;
+      var ag = s.agents.main; if (!ag) return;
+      var p = (Date.now() - f.t0) / f.dur, R0 = 26;
       var a = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85;
       ctx.globalAlpha = clamp(a, 0, 1);
-      ctx.fillStyle = PAL.ink; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = PAL.ink; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center';
       var fy = ag.y - R0 - 14 - easeOut(p) * 30;
       ctx.fillText(f.text, ag.x, fy);
       ctx.fillStyle = PAL.muted; ctx.font = '11px ' + FONT; ctx.fillText(f.sub, ag.x, fy + 13);
       ctx.globalAlpha = 1;
     });
-    renderNodeLabels(s, keys, pos, c, now);
-    // legend
+    renderNodeLabels(s, keys, pos, geo, G, sn, now);
     var lg = '<span><i style="background:' + PAL.accent + ';border-radius:50%"></i>generating</span><span><i style="background:' + PAL.s[3] + '"></i>running a tool</span><span><i style="background:#19c37d;border-radius:50%"></i>waiting</span>';
     setHtml(EL.treeLegend, lg);
   }
@@ -1150,164 +1253,313 @@
     ctx.fillStyle = PAL.muted; ctx.font = '13px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('No session selected', W / 2, H / 2);
   }
-  function nodeRadius(a) { return a.key === 'main' ? 28 : 20; }
-  function drawNode(ctx, s, a, now, sn) {
-    var R = nodeRadius(a), x = a.x, y = a.y, col = modelCol(a.model || (a.key === 'main' ? s.model : '')), ph = a.phase;
-    var spawnP = a.key === 'main' ? 1 : (REDUCED ? 1 : clamp((now - a.born) / 750, 0, 1));
-    var sc = a.key === 'main' ? 1 : easeOutBack(spawnP);
-    var fade = ph === 'done' ? (REDUCED ? 0.5 : 0.5 - 0.1 * clamp((now - a.doneAt) / 40000, 0, 1) + 0.5 * (1 - clamp((now - a.doneAt) / 700, 0, 1))) : 1;
+  function drawNode(ctx, s, a, now, sn, ph) {
+    var R = nodeRadius(a), x = a.x, y = a.y, isM = a.key === 'main', col = modelCol(a.model || (isM ? s.model : '')), bad = ph === 'done' && isBad(a);
+    var spawnP = isM ? 1 : (REDUCED ? 1 : clamp((now - a.born) / 750, 0, 1));
+    var sc = isM ? 1 : easeOutBack(spawnP);
+    var fade = 1;
+    if (ph === 'done') { var da = now - a.doneAt; fade = REDUCED ? 0.7 : 0.55 + 0.45 * (1 - clamp(da / 700, 0, 1)); fade *= 1 - clamp((da - (LINGER - 900)) / 900, 0, 1); }
     ctx.save(); ctx.globalAlpha = clamp(fade, 0, 1) * clamp(spawnP * 3, 0, 1);
     ctx.translate(x, y); ctx.scale(Math.max(0.01, sc), Math.max(0.01, sc));
     var t = REDUCED ? 0 : now / 1000;
-    // phase aura
     if (ph === 'generating') {
       var br = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 2.4);
-      var rad = R + 10 + 11 * br, g = ctx.createRadialGradient(0, 0, R * 0.6, 0, 0, rad);
+      var rad = isM ? R + 10 + 11 * br : R + 7 + 6 * br, g = ctx.createRadialGradient(0, 0, R * 0.6, 0, 0, rad);
       g.addColorStop(0, rgba(col, 0.42 + 0.16 * br)); g.addColorStop(1, rgba(col, 0));
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, rad, 0, 7); ctx.fill();
     } else if (ph === 'tool') {
       var cur = a.currentTool && a.currentTool.tool, tc = cur ? toolCol(cur) : PAL.s[3];
-      ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = tc; ctx.setLineDash([R * 0.75, R * 0.5]); ctx.lineDashOffset = -t * 46;
-      ctx.beginPath(); ctx.arc(0, 0, R + 6, 0, 7); ctx.stroke(); ctx.setLineDash([]);
-      ctx.strokeStyle = rgba(tc, 0.3); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(0, 0, R + 11, 0, 7); ctx.stroke();
+      ctx.lineWidth = isM ? 3 : 2.4; ctx.lineCap = 'round'; ctx.strokeStyle = tc; ctx.setLineDash([R * 0.75, R * 0.5]); ctx.lineDashOffset = -t * 46;
+      ctx.beginPath(); ctx.arc(0, 0, R + (isM ? 6 : 4), 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      if (isM) { ctx.strokeStyle = rgba(tc, 0.3); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(0, 0, R + 11, 0, 7); ctx.stroke(); }
     } else if (ph === 'waiting_user') {
       var cb = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 5.5);
       ctx.strokeStyle = rgba('#19c37d', 0.18 + 0.2 * cb); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, R + 7 + 2 * cb, 0, 7); ctx.stroke();
     }
-    // request pulse ring
     if (a.pulse > 0) {
-      var pr = R + 4 + (1 - a.pulse) * 34;
+      var pr = R + 4 + (1 - a.pulse) * (isM ? 34 : 14);
       ctx.strokeStyle = rgba(col, a.pulse * 0.7); ctx.lineWidth = 2.5 * a.pulse + 0.4; ctx.beginPath(); ctx.arc(0, 0, pr, 0, 7); ctx.stroke();
     }
-    // body
+    if (s.hl === a.key) { var hb = 0.5 + 0.5 * Math.sin(t * 5); ctx.strokeStyle = rgba(PAL.accent, 0.55 + 0.35 * hb); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, R + (isM ? 14 : 9), 0, 7); ctx.stroke(); }
     ctx.shadowColor = PAL.dark ? 'rgba(0,0,0,0.5)' : 'rgba(20,20,60,0.18)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
     ctx.fillStyle = PAL.surface; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
     ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
     var bg = ctx.createRadialGradient(-R * 0.3, -R * 0.4, 0, 0, 0, R);
     bg.addColorStop(0, rgba(col, 0.28)); bg.addColorStop(1, rgba(col, 0.06));
     ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
-    ctx.strokeStyle = ph === 'done' ? rgba(PAL.axis, 0.9) : col; ctx.lineWidth = a.key === 'main' ? 3 : 2.4; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.stroke();
-    // glyph
+    ctx.strokeStyle = ph === 'done' ? (bad ? PAL.crit : rgba(PAL.good, 0.9)) : ph === 'idle' ? rgba(PAL.axis, 0.9) : col; ctx.lineWidth = isM ? 3 : 2.2; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.stroke();
     var gcol = PAL.text, icon;
     if (ph === 'tool') { icon = toolIconName(a.currentTool && a.currentTool.tool); gcol = toolCol(a.currentTool && a.currentTool.tool); if (lum(gcol) > 0.7 && !PAL.dark) gcol = PAL.text; }
     else if (ph === 'generating') { icon = 'sparkle'; gcol = col; }
     else if (ph === 'waiting_user') { icon = 'user'; gcol = '#19c37d'; }
-    else if (ph === 'done') { icon = 'check'; gcol = PAL.muted; }
-    else { icon = a.key === 'main' ? 'bolt' : 'branch'; gcol = PAL.muted; }
-    drawIcon(ctx, icon, 0, 0, a.key === 'main' ? 22 : 16, gcol, 2.2);
+    else if (ph === 'done') { icon = bad ? 'cross' : 'check'; gcol = bad ? PAL.crit : PAL.good; }
+    else if (ph === 'idle' && !isM) { icon = 'pause'; gcol = PAL.muted; }
+    else { icon = isM ? 'user' : 'branch'; gcol = PAL.muted; }
+    drawIcon(ctx, icon, 0, 0, isM ? 22 : 15, gcol, 2.2);
     ctx.restore();
-    var c = CV.tree; c.hits.push({ cx: x, cy: y, r: R + 6, agent: a });
+    CV.tree.hits.push({ cx: x, cy: y, r: R + 5, agent: a });
   }
+
+  /* ---- shared status text (truthful: only the server phase / real event times) */
+  function agentStat(s, a, ph, sn) {
+    var isM = a.key === 'main', since = sn - Math.max(num(a.phaseSince), num(a.lastTs));
+    if (ph === 'generating') return { cls: 'gen', txt: '● generating ' + quiet(since) };
+    if (ph === 'tool') { var ct = a.currentTool; return { cls: 'tool', txt: '⚙ ' + (ct ? ct.tool : 'tool') + ' ' + quiet(sn - (ct ? ct.since : a.phaseSince)) }; }
+    if (ph === 'waiting_user') return { cls: 'calm', txt: 'waiting for you' };
+    if (ph === 'done') return { cls: isBad(a) ? 'bad' : 'ok', txt: (isBad(a) ? '✗ ' : '✓ ') + endLabel(a) };
+    if (isM && GR && GR.active.length) return { cls: 'calm', txt: 'waiting on ' + GR.active.length + ' subagent' + (GR.active.length === 1 ? '' : 's') };
+    return { cls: 'calm', txt: 'idle · quiet ' + quiet(sn - num(a.lastTs)) };
+  }
+  function mdot(m) { return m ? '<i class="md" style="background:' + modelCssVar(m) + '"></i>' + esc(modelShort(m)) : ''; }
+  function agentName(a) { return a.key === 'main' ? 'Main agent' : (a.desc || a.agentType || 'Subagent'); }
+
   var NL = {};
-  function renderNodeLabels(s, keys, pos, c, now) {
-    var seen = {};
+  function renderNodeLabels(s, keys, pos, geo, G, sn, now) {
+    var seen = {}, W = geo.W;
     keys.forEach(function (k) {
-      var a = s.agents[k], p = pos[k], R = nodeRadius(a);
+      var a = s.agents[k], p = pos[k], R = nodeRadius(a), isM = k === 'main', ph = isM ? effAgentPhase(a, sn) : G.ph[k];
       seen[k] = 1;
       var el = NL[s.id + ':' + k];
       if (!el) {
         el = NL[s.id + ':' + k] = document.createElement('div'); el.className = 'lv-nl';
-        el.innerHTML = '<div class="a"></div><div class="d"></div><div class="m"></div><span class="st"></span>';
-        el._a = el.children[0]; el._d = el.children[1]; el._m = el.children[2]; el._s = el.children[3];
+        el.innerHTML = '<div class="a"></div><div class="t"></div><div class="c"></div><div class="st"></div>';
+        el._a = el.children[0]; el._t = el.children[1]; el._c = el.children[2]; el._s = el.children[3];
         EL.nodes.appendChild(el);
       }
-      el._live = true;
-      var narrow = c.w < 520, isMain = k === 'main', mdl = a.model || (isMain ? s.model : '');
-      setText(el._a, isMain ? 'Main agent' : (a.agentType || 'Subagent'));
-      var d = isMain ? '' : a.desc;
-      setText(el._d, d); el._d.style.display = d && !(p.compact && false) ? '' : 'none';
-      setHtml(el._m, (mdl ? '<span class="lv-mchip"><i style="background:' + modelCssVar(mdl) + '"></i>' + esc(modelShort(mdl)) + '</span>' : '') + '<span class="cost">' + esc(fmtCost(a.cost, 3)) + '</span><span>· ' + a.requests + ' req</span>');
-      var st, cls = 'st';
-      if (a.phase === 'generating') st = '● generating ' + fmtSecs(sinceAgent(a));
-      else if (a.phase === 'tool') { st = '⚙ ' + esc(a.currentTool ? a.currentTool.tool : 'tool') + ' ' + fmtSecs(serverNow() - (a.currentTool ? a.currentTool.since : a.phaseSince)); cls = 'st tool'; }
-      else if (a.phase === 'waiting_user') { st = 'waiting for you'; cls = 'st calm'; }
-      else if (a.phase === 'done') { st = '✓ finished'; cls = 'st calm'; }
-      else { st = 'idle'; cls = 'st calm'; }
-      setText(el._s, st); setAttr(el._s, 'class', cls);
+      var mdl = a.model || (isM ? s.model : ''), stt = agentStat(s, a, ph, sn);
+      setText(el._a, agentName(a));
+      if (isM) {
+        setHtml(el._t, mdot(mdl)); setHtml(el._c, '<b>' + esc(fmtCost(a.cost, 3)) + '</b> · ' + a.requests + ' req');
+        setText(el._s, stt.txt);
+      } else {
+        setHtml(el._t, mdot(mdl) + (a.agentType ? '<span class="ty"> · ' + esc(a.agentType) + '</span>' : ''));
+        setHtml(el._s, '<span class="s ' + stt.cls + '">' + esc(stt.txt) + '</span><span class="ct"> · ' + esc(fmtCost(a.cost, 3)) + ' · ' + a.requests + ' req</span>');
+      }
+      setAttr(el._s, 'class', isM ? 'st ' + stt.cls : 'st');
+      el._c.style.display = isM ? '' : 'none';
       var w, left, top;
-      if (isMain) { w = narrow ? 112 : 170; left = clamp(a.x - w / 2, 4, c.w - w - 4); top = a.y + R + 18; el.style.textAlign = 'center'; el._m.style.justifyContent = 'center'; }
-      else { left = a.x + R + 16; top = a.y - 24; w = Math.min(250, c.w - left - 8); el.style.textAlign = 'left'; el._m.style.justifyContent = ''; }
-      if (w < 60) el.style.display = 'none'; else el.style.display = '';
-      el.style.width = Math.max(60, w) + 'px';
-      var op = a.phase === 'done' ? 0.55 : 1, sp = isMain ? 1 : clamp((now - a.born) / 900, 0, 1);
+      if (isM) {
+        w = G.subs ? geo.mainCol - 2 : Math.min(230, W - 16); left = clamp(p.x - w / 2, 2, Math.max(2, W - w - 2)); top = p.y + R + 10;
+        el.className = 'lv-nl main'; el.style.textAlign = 'center';
+      } else {
+        left = geo.subX + R + 10; w = Math.max(60, W - left - 6); top = p.y - 23;
+        el.className = 'lv-nl sub' + (s.hl === k ? ' hl' : ''); el.style.textAlign = 'left';
+      }
+      el.style.width = Math.round(w) + 'px';
+      var sp = isM ? 1 : clamp((now - a.born) / 900, 0, 1), op = ph === 'done' ? 0.62 : ph === 'idle' && !isM ? 0.7 : 1;
+      if (ph === 'done') op *= 1 - clamp((now - a.doneAt - (LINGER - 900)) / 900, 0, 1);
       el.style.opacity = String(op * clamp((sp - 0.3) / 0.7, 0, 1));
       el.style.transform = 'translate(' + Math.round(left) + 'px,' + Math.round(top) + 'px)';
+      if (!isM) CV.tree.hits.push({ x: left, y: top, w: w, h: 46, agent: a, rect: true });
     });
     Object.keys(NL).forEach(function (id) {
       var parts = id.split(':'), k = parts.slice(1).join(':');
       if (parts[0] !== s.id || !seen[k]) { NL[id].remove(); delete NL[id]; }
     });
   }
-  function sinceAgent(a) { return serverNow() - Math.max(a.phaseSince || 0, a.lastTs || 0); }
+  function agentTip(a) {
+    var s = sel(), sn = serverNow(), ph = a.key === 'main' ? effAgentPhase(a, sn) : (GR && GR.ph[a.key]) || effAgentPhase(a, sn), st = agentStat(s, a, ph, sn);
+    var h = '<b>' + esc(agentName(a)) + '</b>' + (a.key !== 'main' && a.agentType ? ' <span class="dim">· ' + esc(a.agentType) + '</span>' : '') + (a.model ? ' <span class="dim">· ' + esc(modelShort(a.model)) + '</span>' : '');
+    h += '<div>' + esc(st.txt) + (ph === 'done' && (a.endTs || a.lastTs) ? ' <span class="dim">' + esc(ago(sn - (a.endTs || a.lastTs))) + '</span>' : '') + '</div>';
+    var du = agentDur(a, ph, sn);
+    h += '<div class="dim">' + a.requests + ' requests · ' + esc(fmtCost(a.cost, 4)) + (du ? ' · ' + esc(du) : '') + '</div>';
+    if (a.currentTool && (ph === 'tool')) h += '<code>' + esc(a.currentTool.tool + ' ' + trunc(a.currentTool.summary, 120)) + '</code>';
+    return h;
+  }
+  function dur2(ms) {
+    ms = Math.max(0, ms);
+    if (ms < 60000) return Math.round(ms / 1000) + 's';
+    var m = Math.floor(ms / 60000), r = Math.round((ms % 60000) / 1000);
+    if (m < 60) return m + 'm ' + pad2(r === 60 ? 59 : r) + 's';
+    return Math.floor(m / 60) + 'h ' + pad2(m % 60) + 'm';
+  }
+  function agentDur(a, ph, sn) {
+    if (!a.firstTs) return '';
+    var end = ph === 'done' ? (a.endTs || a.lastTs) : ph === 'idle' ? a.lastTs : sn;
+    return end > a.firstTs ? dur2(end - a.firstTs) : '';
+  }
   function treeHover(c, mx, my) {
     for (var i = c.hits.length - 1; i >= 0; i--) {
-      var h = c.hits[i], dx = mx - h.cx, dy = my - h.cy;
+      var h = c.hits[i];
+      if (h.rect) { if (mx >= h.x && mx <= h.x + h.w && my >= h.y && my <= h.y + h.h) return agentTip(h.agent); continue; }
+      var dx = mx - h.cx, dy = my - h.cy;
       if (dx * dx + dy * dy > h.r * h.r) continue;
-      if (h.bar) return barTip(h.bar);
-      var a = h.agent, s = sel();
-      return '<b>' + esc(a.key === 'main' ? 'Main agent' : (a.agentType || 'Subagent')) + '</b> <span class="dim">· ' + esc(modelShort(a.model)) + '</span>' + (a.desc ? '<div>' + esc(a.desc) + '</div>' : '') +
-        '<div class="dim">' + a.requests + ' requests · ' + esc(fmtCost(a.cost, 4)) + ' · ' + esc(phaseLabel(a.phase === 'done' ? 'idle' : a.phase)) + (a.phase === 'done' ? ' (finished)' : '') + '</div>' +
-        (a.currentTool ? '<code>' + esc(a.currentTool.tool + ' ' + trunc(a.currentTool.summary, 120)) + '</code>' : '');
+      return h.bar ? barTip(h.bar) : agentTip(h.agent);
     }
     return '';
   }
 
-  /* ================================================================== tool swimlanes */
+  /* ---- roster: "+N more active" + "Finished (N)" lists (DOM, keyed, scrollable) */
+  var RO_T = 0, ROS = { sig: '' };
+  function rowSkeleton() {
+    return '<span class="ic"></span><span class="d"></span><span class="mc"></span><span class="n"></span><span class="c"></span><span class="du"></span><span class="ag"></span>';
+  }
+  function syncRows(host, items, s, sn) {
+    var map = host._m || (host._m = {}), seen = {};
+    if (host._sid !== s.id) { host.innerHTML = ''; map = host._m = {}; host._sid = s.id; }
+    items.forEach(function (k, i) {
+      var a = s.agents[k], ph = GR.ph[k], el = map[k];
+      if (!el) {
+        el = map[k] = document.createElement('div'); el.className = 'lv-fr'; el.setAttribute('role', 'button'); el.tabIndex = 0; el.setAttribute('data-k', k);
+        el.innerHTML = rowSkeleton();
+        el._ic = el.children[0]; el._d = el.children[1]; el._mc = el.children[2]; el._n = el.children[3]; el._c = el.children[4]; el._du = el.children[5]; el._ag = el.children[6];
+      }
+      var st = agentStat(s, a, ph, sn), kind = ph === 'done' ? (isBad(a) ? 'bad' : 'ok') : ph === 'idle' ? 'idle' : 'run';
+      setAttr(el, 'data-st', kind);
+      setAttr(el, 'aria-pressed', String(s.hl === k));
+      if (el.classList.contains('hl') !== (s.hl === k)) el.classList.toggle('hl', s.hl === k);
+      setHtml(el._ic, kind === 'ok' ? iconSvg('check') : kind === 'bad' ? iconSvg('cross') : kind === 'idle' ? iconSvg('pause') : '<i class="rd"></i>');
+      var nm = agentName(a);
+      setText(el._d, nm);
+      setHtml(el._mc, a.model ? '<span class="lv-mchip"><i style="background:' + modelCssVar(a.model) + '"></i>' + esc(modelShort(a.model)) + '</span>' : '');
+      setText(el._n, a.requests + ' req');
+      setText(el._c, fmtCost(a.cost, 3));
+      setText(el._du, agentDur(a, ph, sn));
+      var ag = ph === 'done' ? endLabel(a) + ' ' + ago(sn - (a.endTs || a.lastTs)) : ph === 'idle' ? 'idle · quiet ' + quiet(sn - a.lastTs) : st.txt.replace(/^[^a-z]+/, '');
+      setText(el._ag, ag);
+      setAttr(el, 'title', nm + (a.agentType ? '  ·  ' + a.agentType : '') + '  ·  ' + ag + '  ·  ' + a.requests + ' req  ·  ' + fmtCost(a.cost, 4));
+      seen[k] = 1;
+      if (host.children[i] !== el) host.insertBefore(el, host.children[i] || null);
+    });
+    Object.keys(map).forEach(function (k) { if (!seen[k]) { map[k].remove(); delete map[k]; } });
+  }
+  function renderRoster(now) {
+    var s = sel(), sn = serverNow();
+    if (!s || !GR) { EL.fin.hidden = true; EL.ovf.hidden = true; EL.more.hidden = true; return; }
+    var G = GR, card = EL.treeCard;
+    setAttr(card, 'data-sz', G.shown.length ? 'full' : 'solo');
+    // overflow chip + list
+    var no = G.overflow.length;
+    EL.more.hidden = !no;
+    if (!no) s.ovfOpen = false;
+    if (no) { setText(EL.moreT, '+' + no + ' more active'); setAttr(EL.more, 'aria-expanded', String(!!s.ovfOpen)); }
+    var showOvf = !!(no && s.ovfOpen);
+    EL.ovf.hidden = !showOvf;
+    // finished tray
+    var nt = G.tray.length;
+    EL.fin.hidden = !nt;
+    if (now - RO_T < 400 && !UI.rosterDirty) return;
+    RO_T = now; UI.rosterDirty = false;
+    if (showOvf) { setText(EL.ovfN, 'More active (' + no + ')'); syncRows(EL.ovfL, G.overflow, s, sn); }
+    if (nt) {
+      setText(EL.finN, 'Finished (' + nt + ')');
+      var parts = [];
+      if (G.ok) parts.push('<span class="ok">✓ ' + G.ok + '</span>');
+      if (G.bad) parts.push('<span class="bad">✗ ' + G.bad + '</span>');
+      if (G.idle.length) parts.push('<span class="idl">⏸ ' + G.idle.length + ' idle</span>');
+      parts.push('<span>' + esc(fmtCost(G.cost, 2)) + '</span>');
+      setHtml(EL.finS, parts.join(''));
+      EL.fin.setAttribute('data-open', M.finOpen ? '1' : '0');
+      setAttr(EL.finT, 'aria-expanded', String(!!M.finOpen));
+      if (M.finOpen) syncRows(EL.finL, G.tray, s, sn);
+    }
+  }
+
+  /* ================================================================== tool swimlanes (only agents with calls in the window; scrolls vertically) */
   function barTip(b) {
     var st = b.running ? '<span style="color:#7fd8ff">running · ' + esc(fmtSecs(serverNow() - b.start)) + '</span>' : (b.isError ? '<span style="color:#ff9a9a">✗ failed · ' + esc(fmtDur(b.dur)) + '</span>' : '<span style="color:#7be0b0">✓ ' + esc(fmtDur(b.dur)) + '</span>');
     return '<b>' + esc(b.tool) + '</b> <span class="dim">· ' + hms(b.start - M.skew) + '</span><div>' + st + '</div>' + (b.summary ? '<code>' + esc(trunc(b.summary, 220)) + '</code>' : '');
   }
-  function laneAgents(s, sn) {
-    var lo = sn - LANE_WIN, out = [];
-    s.order.forEach(function (k) {
-      var a = s.agents[k]; if (!a) return;
-      var bars = s.tools.filter(function (b) { return b.key === k && (b.running || b.end >= lo); });
-      var active = a.phase === 'generating' || a.phase === 'tool';
-      if (k === 'main' || bars.length || (active && agentVisible(a, Date.now()))) out.push({ a: a, bars: bars });
-    });
-    return out;
+  function fitText(ctx, t, maxW) {
+    t = String(t || '');
+    if (maxW <= 8) return '';
+    if (ctx.measureText(t).width <= maxW) return t;
+    var lo = 0, hi = t.length;
+    while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (ctx.measureText(t.slice(0, mid) + '…').width <= maxW) lo = mid; else hi = mid - 1; }
+    return lo ? t.slice(0, lo) + '…' : '';
   }
-  function drawLanes(now, dt) {
-    var c = CV.lanes, ctx = prep(c), W = c.w, H = c.h, s = sel(), sn = serverNow();
-    c.hits = [];
-    var gut = Math.min(150, Math.max(92, W * 0.22)), L = gut, R = W - 14, T = 4, B = H - 26, pw = R - L;
-    var X = function (t) { return R - (sn - t) / LANE_WIN * pw; };
-    var lanes = s ? laneAgents(s, sn) : [];
-    // axis (relative: static ticks while the bars slide)
-    ctx.font = '11px ' + FONT; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'center';
-    [0, 15, 30, 45, 60].forEach(function (sec) {
-      var x = R - sec / (LANE_WIN / 1000) * pw;
-      ctx.strokeStyle = PAL.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, T); ctx.lineTo(Math.round(x) + 0.5, B + 3); ctx.stroke();
-      if (sec < 60) { ctx.fillStyle = PAL.muted; ctx.fillText(sec === 0 ? 'now' : '−' + sec + ' s', x, H - 8); }
-    });
-    if (!lanes.length) { ctx.fillStyle = PAL.muted; ctx.textAlign = 'center'; ctx.font = '13px ' + FONT; ctx.fillText('No tool calls in the last minute', (L + R) / 2, (T + B) / 2); setHtml(EL.laneLegend, ''); return; }
-    var laneH = Math.min(64, (B - T) / lanes.length), usedTools = {};
-    lanes.forEach(function (ln, li) {
-      var y0 = T + li * laneH, a = ln.a;
-      // stripe
-      if (li % 2 === 0) { ctx.fillStyle = rgba(PAL.surface2, PAL.dark ? 0.5 : 0.9); rr(ctx, 0, y0 + 1, W, laneH - 2, 8); ctx.fill(); }
-      // label
-      var col = modelCol(a.model || (a.key === 'main' ? s.model : '')), active = a.phase === 'generating' || a.phase === 'tool';
-      ctx.fillStyle = active ? col : rgba(PAL.axis, 0.9); ctx.beginPath(); ctx.arc(14, y0 + laneH / 2, active && !REDUCED ? 3.6 + 1.2 * Math.sin(now / 220) : 3.6, 0, 7); ctx.fill();
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = PAL.text; ctx.font = '600 12px ' + FONT;
-      ctx.fillText(trunc(a.key === 'main' ? 'Main agent' : (a.agentType || 'Subagent'), Math.floor((gut - 34) / 6.6)), 26, y0 + laneH / 2 - (a.key === 'main' || !a.desc ? 0 : 7));
-      if (a.key !== 'main' && a.desc) { ctx.fillStyle = PAL.muted; ctx.font = '11px ' + FONT; ctx.fillText(trunc(a.desc, Math.floor((gut - 34) / 5.8)), 26, y0 + laneH / 2 + 8); }
-      // bars with row packing
-      var rowsEnd = [];
-      var sorted = ln.bars.slice().sort(function (p, q) { return p.start - q.start; });
+  function wrap2(ctx, t, maxW) {
+    t = String(t); ctx.font = '600 11.5px ' + FONT;
+    var lo = 0, hi = t.length;
+    while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (ctx.measureText(t.slice(0, mid)).width <= maxW) lo = mid; else hi = mid - 1; }
+    if (lo >= t.length) return [t, ''];
+    var cut = lo, sp = t.lastIndexOf(' ', lo);
+    if (sp > 2) cut = sp;
+    return [t.slice(0, cut), fitText(ctx, t.slice(cut).trim(), maxW)];
+  }
+  var LANE_MIN = 34;
+  function laneModel(s, sn) {
+    var lo = sn - LANE_WIN, by = {}, out = [];
+    for (var i = 0; i < s.tools.length; i++) {
+      var b = s.tools[i];
+      if (!(b.running || b.end >= lo)) continue;
+      var a0 = s.agents[b.key];
+      if (b.running && a0 && a0.key !== 'main') {
+        var pp = effAgentPhase(a0, sn);
+        if (pp !== 'generating' && pp !== 'tool') { closeTools(s, b.key, a0.endTs || a0.lastTs || sn); continue; }
+      }
+      (by[b.key] || (by[b.key] = [])).push(b);
+    }
+    s.order.forEach(function (k) {
+      var a = s.agents[k], bars = by[k];
+      if (!a || !bars || !bars.length) return;
+      var sorted = bars.slice().sort(function (p, q) { return p.start - q.start; }), rowsEnd = [];
       sorted.forEach(function (b) {
         var r = 0; while (rowsEnd[r] != null && rowsEnd[r] > b.start + 40) r++;
         rowsEnd[r] = b.running ? Infinity : b.end; b._row = r;
       });
-      var nRows = Math.min(3, Math.max(1, rowsEnd.length)), barH = Math.min(24, (laneH - 12) / nRows - 2);
+      var nRows = Math.min(3, Math.max(1, rowsEnd.length)), barH = nRows === 1 ? 20 : nRows === 2 ? 18 : 16;
+      out.push({ a: a, bars: sorted, nRows: nRows, barH: barH, h: Math.max(LANE_MIN, nRows * (barH + 3) + 11) });
+    });
+    return out;
+  }
+  function drawLanes(now, dt) {
+    var c = CV.lanes, ax = CV.laxis, sc = EL.lscroll, s = sel(), sn = serverNow();
+    var lanes = s ? laneModel(s, sn) : [], T = 4, total = T;
+    lanes.forEach(function (ln) { ln.y = total; total += ln.h; });
+    total += 4;
+    // single-column layouts: the panel fits its lanes (110-460 px) instead of a fixed tall box
+    var box = sc.parentNode;
+    if (window.innerWidth <= 1100) { var want = Math.min(460, Math.max(110, total + 30)) + 'px'; if (box.style.height !== want) { box.style.height = want; box.style.minHeight = want; } }
+    else if (box.style.height) { box.style.height = ''; box.style.minHeight = ''; }
+    var viewH = Math.max(40, sc.clientHeight), needH = Math.max(viewH, total);
+    if (c.fixedH !== needH) { c.fixedH = needH; c.dirty = true; }
+    if (c.w !== sc.clientWidth || ax.w !== sc.clientWidth) { c.dirty = true; ax.dirty = true; }
+    var ctx = prep(c), W = c.w, H = c.h;
+    c.hits = [];
+    var narrow = W < 400, gut = narrow ? 112 : Math.min(210, Math.max(120, W * 0.3)), L = gut, R = W - 14, pw = R - L;
+    var X = function (t) { return R - (sn - t) / LANE_WIN * pw; };
+    var actx = prep(ax), AH = ax.h;
+    actx.font = '11px ' + FONT; actx.textBaseline = 'alphabetic'; actx.textAlign = 'center';
+    ctx.lineWidth = 1;
+    [0, 15, 30, 45, 60].forEach(function (sec) {
+      var x = R - sec / (LANE_WIN / 1000) * pw;
+      ctx.strokeStyle = PAL.grid; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, H); ctx.stroke();
+      if (sec < 60) { actx.fillStyle = PAL.muted; actx.fillText(sec === 0 ? 'now' : '−' + sec + ' s', x, AH - 8); }
+    });
+    var st = sc.scrollTop, usedTools = {};
+    if (!lanes.length) {
+      ctx.fillStyle = PAL.muted; ctx.textAlign = 'center'; ctx.font = '13px ' + FONT; ctx.fillText('No tool calls in the last minute', (L + R) / 2, viewH / 2);
+      setHtml(EL.laneLegend, ''); return;
+    }
+    var reqBy = {};
+    for (var qi = s.reqs.length - 1; qi >= 0; qi--) { var rq = s.reqs[qi]; if (rq.ts < sn - LANE_WIN) { if (rq.ts < sn - LANE_WIN - 60000) break; continue; } (reqBy[rq.ak] || (reqBy[rq.ak] = [])).push(rq); }
+    lanes.forEach(function (ln, li) {
+      var y0 = ln.y, laneH = ln.h, a = ln.a;
+      if (y0 + laneH < st - 8 || y0 > st + viewH + 8) return;
+      var hl = s.hl === a.key;
+      if (hl) { ctx.fillStyle = rgba(PAL.accent, PAL.dark ? 0.2 : 0.1); rr(ctx, 0, y0 + 1, W, laneH - 2, 8); ctx.fill(); }
+      else if (li % 2 === 0) { ctx.fillStyle = rgba(PAL.surface2, PAL.dark ? 0.5 : 0.9); rr(ctx, 0, y0 + 1, W, laneH - 2, 8); ctx.fill(); }
+      var col = modelCol(a.model || (a.key === 'main' ? s.model : '')), ph = effAgentPhase(a, sn), active = ph === 'generating' || ph === 'tool', isM = a.key === 'main';
+      var two = !narrow && !isM && a.agentType && a.desc, cy = y0 + laneH / 2;
+      ctx.fillStyle = active ? col : rgba(PAL.axis, 0.9); ctx.beginPath(); ctx.arc(12, cy, active && !REDUCED ? 3.4 + 1.1 * Math.sin(now / 220) : 3.4, 0, 7); ctx.fill();
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = PAL.text; ctx.font = '600 12px ' + FONT;
+      var nm = agentName(a), wrapped = !two && !isM && laneH >= 34 && ctx.measureText(nm).width > gut - 28;
+      if (wrapped) {
+        var ln2 = wrap2(ctx, nm, gut - 28);
+        ctx.font = '600 11.5px ' + FONT;
+        ctx.fillText(ln2[0], 22, cy - 7); ctx.fillText(ln2[1], 22, cy + 7);
+      } else ctx.fillText(fitText(ctx, nm, gut - 28), 22, cy - (two ? 7 : 0));
+      if (two) { ctx.fillStyle = PAL.muted; ctx.font = '11px ' + FONT; ctx.fillText(fitText(ctx, a.agentType + (a.model ? ' · ' + modelShort(a.model) : ''), gut - 28), 22, cy + 8); }
+      c.hits.push({ x: 0, y: y0, w: L - 4, h: laneH, agent: a, rect: true });
+      var barH = ln.barH, nRows = ln.nRows;
       ctx.save(); ctx.beginPath(); ctx.rect(L, y0, pw + 8, laneH); ctx.clip();
-      sorted.forEach(function (b) {
+      ln.bars.forEach(function (b) {
         var xs = X(b.start), xe = b.running ? R : X(b.end || b.start);
         if (xe < L) return;
-        var rowI = Math.min(2, b._row), by = y0 + (laneH - (nRows * (barH + 2) - 2)) / 2 + rowI * (barH + 2);
+        var rowI = Math.min(2, b._row), by = y0 + (laneH - (nRows * (barH + 3) - 3)) / 2 + rowI * (barH + 3);
         var bx = Math.max(L - 4, xs), bw = Math.max(b.running ? 6 : 5, xe - xs), col2 = toolCol(b.tool);
         usedTools[b.tool] = col2;
-        var born = Date.now() - 0, grow = 1;
         ctx.fillStyle = rgba(col2, b.running ? 0.95 : 0.82);
         rr(ctx, bx, by, bw, barH, 5); ctx.fill();
         if (b.running) {
@@ -1320,7 +1572,6 @@
           if (xe >= R - 1) { ctx.fillStyle = gl; ctx.fillRect(R - 36, by - 2, 44, barH + 4); }
         }
         if (b.isError) { ctx.strokeStyle = PAL.crit; ctx.lineWidth = 2; rr(ctx, bx + 1, by + 1, bw - 2, barH - 2, 4); ctx.stroke(); }
-        // label
         var tcol = lum(col2) > 0.62 ? '#14121f' : '#ffffff', labelX = Math.max(bx, L) + 7;
         if (bw > 40) {
           ctx.fillStyle = tcol; ctx.font = '600 11px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -1332,23 +1583,24 @@
         } else if (b.isError) { drawIcon(ctx, 'cross', bx + bw / 2, by + barH / 2, 10, '#fff', 3); }
         c.hits.push({ x: bx, y: by, w: bw, h: barH, bar: b, rect: true });
       });
-      // request ticks on the lane's top edge
-      s.reqs.forEach(function (rq) {
-        if (rq.ak !== a.key || rq.ts < sn - LANE_WIN || rq.ts > sn + 100) return;
+      (reqBy[a.key] || []).forEach(function (rq) {
         var rx = X(rq.ts);
-        if (rx < L) return;
-        ctx.fillStyle = modelCol(rq.model); ctx.beginPath(); ctx.moveTo(rx, y0 + 3); ctx.lineTo(rx + 3.5, y0 + 7.5); ctx.lineTo(rx, y0 + 12); ctx.lineTo(rx - 3.5, y0 + 7.5); ctx.closePath();
+        if (rx < L || rq.ts > sn + 100) return;
+        ctx.fillStyle = modelCol(rq.model); ctx.beginPath(); ctx.moveTo(rx, y0 + 2); ctx.lineTo(rx + 3, y0 + 5.5); ctx.lineTo(rx, y0 + 9); ctx.lineTo(rx - 3, y0 + 5.5); ctx.closePath();
         ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
       });
       ctx.restore();
     });
-    // now line
-    ctx.strokeStyle = rgba(PAL.accent, 0.6); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(R + 0.5, T); ctx.lineTo(R + 0.5, B + 3); ctx.stroke();
-    var lg = Object.keys(usedTools).slice(0, 8).map(function (t) { return '<span><i style="background:' + usedTools[t] + '"></i>' + esc(t) + '</span>'; }).join('') + '<span><i style="background:transparent;border:2px solid var(--critical)"></i>failed</span>';
+    ctx.strokeStyle = rgba(PAL.accent, 0.6); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(R + 0.5, 0); ctx.lineTo(R + 0.5, H); ctx.stroke();
+    var lg = Object.keys(usedTools).slice(0, 6).map(function (t) { return '<span><i style="background:' + usedTools[t] + '"></i>' + esc(t) + '</span>'; }).join('') + '<span><i style="background:transparent;border:2px solid var(--critical)"></i>failed</span>' +
+      '<span style="color:var(--text-muted)">' + lanes.length + ' agent' + (lanes.length === 1 ? '' : 's') + (total > viewH + 4 ? ' · scroll' : '') + '</span>';
     setHtml(EL.laneLegend, lg);
   }
   function lanesHover(c, mx, my) {
-    for (var i = c.hits.length - 1; i >= 0; i--) { var h = c.hits[i]; if (mx >= h.x && mx <= h.x + h.w && my >= h.y - 2 && my <= h.y + h.h + 2) return barTip(h.bar); }
+    for (var i = c.hits.length - 1; i >= 0; i--) {
+      var h = c.hits[i];
+      if (mx >= h.x && mx <= h.x + h.w && my >= h.y - 2 && my <= h.y + h.h + 2) return h.bar ? barTip(h.bar) : agentTip(h.agent);
+    }
     return '';
   }
 
@@ -1418,6 +1670,7 @@
     drawEcg(now);
     drawTimeline(now, dt);
     drawTree(now, dt);
+    renderRoster(now);
     drawLanes(now, dt);
   }
   function loop(ts) {

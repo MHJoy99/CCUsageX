@@ -766,3 +766,17 @@ test('speed: partial (stream-start only) records are excluded from tokens/second
   near(son.speed, 500);
   assert.equal(son.speedSamples, 1);
 });
+
+test('prompt text: injected <browser_instruction> notices are stripped; a notice-only message shows the notice text', async () => {
+  fresh();
+  write('p/B1.jsonl', [
+    user({ pid: 'PB1', t: 0, sid: 'B1', human: true, content: '<browser_instruction>[Browser disconnected: reconnect]</browser_instruction>\nfix the login form' }),
+    asst({ msg: 'bm1', t: 2000, sid: 'B1', stop: 'end_turn' }),
+    user({ pid: 'PB2', t: 60000, sid: 'B1', human: true, content: '<browser_instruction>[Browser disconnected: reconnect]</browser_instruction>' }),
+    asst({ msg: 'bm2', t: 62000, sid: 'B1', stop: 'end_turn' }),
+  ]);
+  srv.scan();
+  const rows = (await api('/api/prompts?sort=time&dir=asc&size=10')).rows;
+  assert.equal(rows.find((r) => r.id === 'PB1').text, 'fix the login form');
+  assert.equal(rows.find((r) => r.id === 'PB2').text, '[Browser disconnected: reconnect]');
+});
