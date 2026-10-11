@@ -57,7 +57,8 @@ Nothing is uploaded anywhere, and it needs nothing but Node.js 18+.
   usage is worth.
 - **Cache savings.** Cache hit rate and the dollars caching saved you.
 - **Plan usage limits.** Your 5-hour session and 7-day weekly limits on Pro and Max, with reset times, a pace
-  projection and a small history. Read from Claude Code's status line; see [Plan usage limits](#plan-usage-limits).
+  projection and a small history, plus per-model weekly limits when Claude Code reports them. Read from Claude Code's own
+  `/usage` report and refreshed automatically; see [Plan usage limits](#plan-usage-limits).
 - **Models, effort, speed.** Output tokens per second, response time (typical and slowest 5%), effort levels and
   Claude Code versions.
 - **Tools, sessions, projects.** Which tools ran how often, per-session and per-project breakdowns.
@@ -106,10 +107,19 @@ Double-click **`Open-CCUsageX.cmd`**. It starts the server hidden and opens the 
 
 <img src="assets/plan-limits.svg" alt="Example plan limits: session 5-hour window 23% used, resets in 2h 14m; weekly 7-day window 41% used, resets Thursday" width="100%">
 
-CCUsageX can show how much of your Claude subscription limit you have used: the **5-hour session** window and the
-**7-day weekly** window, with when each one resets. Claude Code reports these two percentages to its status line, so
-CCUsageX reads them from there. It does not log in, does not call any Claude endpoint and does not read your
-credentials. Set it up once, from the repository folder:
+CCUsageX shows how much of your Claude subscription limit you have used: the **5-hour session** window and the
+**7-day weekly** window, with when each one resets, plus the **per-model weekly limits** (for example one for a single
+model) when Claude Code reports them. The numbers refresh automatically from Claude Code's documented `/usage` report,
+every 2 minutes while you look at the dashboard (every 15 minutes otherwise). This works the same in the terminal and in
+the VS Code panel. It uses no model tokens and writes no transcript: CCUsageX runs the local command
+`claude -p` with the single prompt `/usage` (the Agent SDK documents `usage_report.rate_limits` for it). It takes about
+3 seconds and costs nothing. The refresh button on the card runs it on demand.
+
+The probe finds `claude` on your `PATH`, or the binary bundled with the VS Code, Cursor or Windsurf extension. Set
+`CCU_CLAUDE_BIN` to point at a specific binary, or `CCU_LIMITS_PROBE=0` to turn the probe off.
+
+The status line is now **optional**. It gives instant updates in terminal `claude` sessions (on every reply), and
+CCUsageX uses whichever source changed most recently. Set it up from the repository folder:
 
 ```bash
 npm run statusline:install        # or: node scripts/install-statusline.js --install
@@ -128,16 +138,12 @@ The installer edits only the `statusLine` entry of your Claude Code `settings.js
 
 Things to know:
 
-- **Pro and Max only.** Claude Code reports these limits for claude.ai subscriptions. API-key and other plans show
-  no limit data.
-- **Appears after the first reply.** Claude Code sends the numbers with its first response in a session, so the
-  dashboard shows the setup state until you send a message.
-- **Terminal app, not the VS Code panel.** Status lines run in the terminal `claude` app. In testing, the VS Code panel
-  did not report limits, so if you work mostly in VS Code, send a message in terminal `claude` now and then to refresh the numbers.
-  The card marks values older than 15 minutes as stale and shows when they were last updated.
-- **Overall windows only.** Claude Code does not report separate Opus or Sonnet limits, so CCUsageX does not show them.
-- **Local data only.** Snapshots are written to `~/.ccusagex/limits/` (or `$CCU_DATA_DIR/limits/`). Nothing is sent
-  anywhere. The status line runs on each reply and about every 30 seconds. It is built to finish in under 100 ms.
+- **Pro and Max only.** Claude Code reports these limits for claude.ai subscriptions. With an API key, a third-party
+  provider, or a login without profile access, the report has no limits and the card says so.
+- **Terminal only for the status line.** The status line runs only in terminal `claude` sessions; the `/usage` probe
+  does not depend on it.
+- **Local data only.** Snapshots are written to `~/.ccusagex/limits/` (or `$CCU_DATA_DIR/limits/`). CCUsageX makes no
+  network request itself; it only runs the local `claude` command above and never reads your credentials.
 
 Details, including the data fields and the burn-rate projection, are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#plan-usage-limits).
@@ -202,11 +208,12 @@ Environment variables: `PORT`, `CLAUDE_CONFIG_DIR` (where Claude Code keeps its 
 ## Privacy
 
 - Runs only on your machine and listens on `127.0.0.1` only (requests with a foreign `Host` header are rejected).
-- Makes **no outbound network requests**, has no telemetry and no dependencies.
+- Makes **no outbound network requests** of its own, has no telemetry and no dependencies.
 - Reads `~/.claude` **read-only**. Its own copy, which includes your prompt text, is stored in `~/.ccusagex/`.
   Delete that folder to remove it.
-- The optional plan-limits status line writes only its snapshots under `~/.ccusagex/limits/`. Its installer edits
-  only the `statusLine` entry in Claude Code's `settings.json`, after making a backup.
+- Plan limits come from running Claude Code's own `/usage` command locally (no model call, no tokens, no network request
+  from CCUsageX). Snapshots go under `~/.ccusagex/limits/`. The optional status line edits only the `statusLine` entry in
+  Claude Code's `settings.json`, after making a backup.
 
 ## FAQ
 

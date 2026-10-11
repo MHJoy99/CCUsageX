@@ -583,10 +583,35 @@ main session plus N background subagents with hand-back, killed and never-ending
 ## Plan usage limits
 
 The plan limits card shows the 5-hour session window and the 7-day weekly window for Pro and Max subscribers. These
-numbers do not come from the transcripts. The transcripts have no quota data, so CCUsageX takes them from Claude Code's
-status line instead.
+numbers do not come from the transcripts. The transcripts have no quota data, so CCUsageX takes them from two sources:
+Claude Code's documented `/usage` report (the default, polled by the server) and, optionally, its status line.
 
-### Source
+### Source 1: the `/usage` probe
+
+The Agent SDK documents that sending `/usage` as a prompt returns an assistant message with `usage_report.rate_limits`
+(`SDKUsageReport`). `server.js` runs this fixed command, with `cwd` set to the temp directory:
+
+```
+echo '{"type":"user","message":{"role":"user","content":"/usage"}}' | claude -p --input-format stream-json --output-format stream-json --verbose --no-session-persistence
+```
+
+It is a local command: no model call, `total_cost_usd` 0, no transcript, about 3 seconds. The binary is `CCU_CLAUDE_BIN`
+(a path, a `.js` script run with Node, or a JSON array `["cmd","arg"]`), else `claude` on `PATH`, else the newest
+`anthropic.claude-code-*` extension binary under `~/.vscode`, `.vscode-insiders`, `.cursor` or `.windsurf`.
+`CCU_LIMITS_PROBE=0` turns it off. Schedule: once about 3 seconds after start, then every 2 minutes while the dashboard
+is being viewed (an SSE subscriber, or any `/api` request in the last 10 minutes), otherwise every 15 minutes; never
+overlapping, 30 second timeout, and a back-off to 15 minutes after three consecutive failures. `GET /api/limits?refresh=1`
+starts a probe unless one began less than 20 seconds ago and answers when it finishes (at most 15 seconds).
+
+The report's `rate_limits.limits[]` entries are `{ kind: session | weekly_all | weekly_scoped, percent, resets_at (ISO),
+scope, severity, is_active }` and `rate_limits.extra_usage` is `{ is_enabled, monthly_limit, used_credits, utilization,
+currency }`. `rate_limits` is null for API-key and third-party sessions, and when the OAuth token lacks the
+`user:profile` scope. CCUsageX stores the result as the pseudo-session `limits/usage-probe.json` (`session` becomes
+`five_hour`, `weekly_all` becomes `seven_day`, each `weekly_scoped` becomes a scoped window; `resets_at` is rounded to the
+minute because it jitters by sub-seconds between calls) and appends `history.jsonl` points (`5h`, `7d`, `7d:<label>`) when
+a value changes. A null report never overwrites a good snapshot.
+
+### Source 2: the status line (optional)
 
 Claude Code runs the command in `statusLine.command` and writes a JSON object to its stdin. For claude.ai Pro and
 Max subscribers, the object has a `rate_limits` field after the first API response in a session:
@@ -616,11 +641,12 @@ must finish in about 100 ms. A non-zero exit or no output blanks the status line
 
 ### What is not available
 
-- **No per-model windows.** Claude Code reports no separate Opus or Sonnet limits, so CCUsageX shows none and does not
-  estimate them.
+- **No per-model windows from the status line.** Only the `/usage` report carries `weekly_scoped` limits; the card
+  shows them when present and never estimates them.
 - **Pro and Max only.** Other plans send no `rate_limits`. The card then says so.
-- **After the first reply.** A new session has no numbers until its first response.
-- **No history before setup.** The sparkline starts when the status line hook is installed.
+- **Status line: after the first reply, terminal only.** A new session has no numbers until its first response, and the
+  VS Code panel never runs the status line. The `/usage` probe covers that case.
+- **No history before the first probe or setup.**
 - **No direct API calls.** CCUsageX does not call usage endpoints and does not read `~/.claude/.credentials.json`.
 
 ### Pipeline
@@ -678,6 +704,11 @@ All times are epoch **milliseconds**; percentages are 0–100.
 | `windows.*.burnPerHour` | Least-squares slope in % per hour over this window instance only; `null` with fewer than 2 points or under 5 minutes of span. |
 | `windows.*.projectedHitAt` | When 100% is reached at the current pace, only if that falls before the reset; otherwise `null`. |
 | `windows.spend_limit` | Gateway accounts only; adds `usedUsd`, `limitUsd`, `period`. |
+| `windows.scoped[]` | Per-model weekly windows from the `/usage` report: `{ key, label, usedPct, resetsAt, windowMs (7 d), startedAt, elapsedPct, burnPerHour, projectedPctAtReset, projectedHitAt, status, history, severity, isActive, updatedAt }`. Absent when none are reported. |
+| `windows.five_hour/seven_day.isActive`, `.severity`, `.source` | From the `/usage` report: whether Claude Code marks the limit active, its severity string, and `usage` or `statusline` for the snapshot that won. |
+| `source` | `usage` or `statusline`: the source of the winning five-hour (else seven-day) snapshot. |
+| `extraUsage` | Only when extra usage is enabled: `{ enabled, monthlyLimit, usedCredits, utilization, currency }`. |
+| `probe` | `{ enabled, ok, lastAt, lastOkAt, lastError (short, no paths), nextAt, intervalMs, running, noLimits? }`: state of the `/usage` probe. |
 | `reset` | Windows that were reported earlier and have since passed their reset time. |
 
 Across sessions, the snapshot whose numbers **changed** most recently wins, so an idle open session that keeps re-reporting old numbers cannot override the active one.
@@ -706,7 +737,7 @@ Runtime files for this feature:
 
 | Path | Contents |
 |---|---|
-| `~/.ccusagex/limits/<session_id>.json` (or `$CCU_DATA_DIR/limits/`) | Latest snapshot for one Claude Code session. |
+| `~/.ccusagex/limits/<session_id>.json` (or `$CCU_DATA_DIR/limits/`) | Latest snapshot for one Claude Code session. `usage-probe.json` is the `/usage` probe's pseudo-session. |
 | `~/.ccusagex/limits/history.jsonl` | Points used for the sparkline and the burn rate. Capped at about 5 MB. |
 | `<config dir>/settings.json.bak-<timestamp>` | Copy of `settings.json` made before an install or uninstall. |
 

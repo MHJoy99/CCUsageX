@@ -5,6 +5,27 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-10-11
+
+### Added
+
+- **Plan limits refresh automatically.** The server runs Claude Code's documented `/usage` report in the background
+  (`claude -p` with the prompt `/usage`: a local command, no model tokens, no transcript, about 3 seconds). It runs once
+  at start, then every 2 minutes while the dashboard is being viewed and every 15 minutes otherwise, and backs off
+  after repeated failures. This works for the VS Code panel as well as the terminal.
+- **Per-model weekly limits** are shown under the two gauges when Claude Code reports them, with the active ("binding")
+  limit tagged, and in the header pill's tooltip.
+- A refresh button and an "Updated ... auto-refresh every 2 min" line on the Plan limits card. `GET /api/limits?refresh=1`
+  runs a probe on demand (at most one per 20 seconds).
+- `/api/limits` payload additions: `windows.scoped`, `isActive` and `severity`, `extraUsage`, `source` (`usage` or
+  `statusline`) and `probe`.
+- `CCU_CLAUDE_BIN` (path to the `claude` binary, a `.js` script or a JSON array) and `CCU_LIMITS_PROBE=0` (turn it off).
+
+### Changed
+
+- The status line is now optional. It still gives instant updates in terminal sessions, and the source that changed most
+  recently wins.
+
 ## [1.2.0] - 2026-10-11
 
 ### Added

@@ -1632,9 +1632,10 @@ function limRound(v, d) { const k = 10 ** d; return Math.round(v * k) / k; }
 function limMs(v) { v = limFiniteNum(v); return v == null ? null : v < 1e12 ? Math.round(v * 1000) : Math.round(v); } // epoch seconds -> ms
 
 // Least-squares slope of used% over time, in percentage points per hour. null with < 2 points or < 5 minutes of span.
-function limBurn(points) {
+// minSpanMs lets long windows demand more history, so a short burst is not extrapolated over days.
+function limBurn(points, minSpanMs = LIM_MIN_SPAN_MS) {
   if (points.length < 2) return null;
-  if (points[points.length - 1].t - points[0].t < LIM_MIN_SPAN_MS) return null;
+  if (points[points.length - 1].t - points[0].t < minSpanMs) return null;
   const t0 = points[0].t;
   let sx = 0, sy = 0, sxx = 0, sxy = 0;
   for (const q of points) { const x = (q.t - t0) / 3600e3; sx += x; sy += q.p; sxx += x * x; sxy += x * q.p; }
@@ -1663,7 +1664,7 @@ function limWindow(wd, cur, hist, now) {
   const before = pts.filter((q) => q.t < lb);
   // percentages only change when recorded, so the value in force when the lookback began counts as a point (only while reports are fresh)
   if (before.length && fit.length && fit[0].t > lb && now - seen <= LIM_STALE_MS) fit.unshift({ t: lb, p: before[before.length - 1].p });
-  const burn = limBurn(fit);
+  const burn = limBurn(fit, windowMs ? Math.max(LIM_MIN_SPAN_MS, windowMs / 40) : LIM_MIN_SPAN_MS); // 5h: 7.5 min, 7d: 4.2 h
   const hoursLeft = resetsAt ? Math.max(0, (resetsAt - now) / 3600e3) : null;
   let projected = null;
   let hitAt = null;
@@ -1685,6 +1686,36 @@ function limWindow(wd, cur, hist, now) {
     willExceed: projected != null && projected > 100,   // extra: the projection crosses 100 % before the reset
     updatedAt: cur.updatedAt,                            // extra: when this value was last reported
   };
+}
+
+
+// Per-model weekly windows ("weekly_scoped") come only from the /usage probe snapshot: `scoped: [{ label, used_percentage, resets_at, severity, is_active }]`.
+function limScoped(valid, hist, now) {
+  let snap = null;
+  for (const s of valid) if (Array.isArray(s.scoped) && (!snap || s.receivedAt > snap.receivedAt)) snap = s;
+  if (!snap) return [];
+  const out = [];
+  for (const sc of snap.scoped) {
+    if (!sc || typeof sc.label !== 'string') continue;
+    const used = limFiniteNum(sc.used_percentage);
+    const resetsAt = limMs(sc.resets_at);
+    if (used == null || resetsAt == null || resetsAt <= now) continue;
+    const wd = { key: '7d:' + sc.label, windowMs: 7 * 24 * 3600e3, lookbackMs: 24 * 3600e3 };
+    const points = (hist || []).filter((h) => h && h.w === wd.key && limFiniteNum(h.t) != null && limFiniteNum(h.p) != null &&
+      limMs(h.r) != null && Math.abs(limMs(h.r) - resetsAt) < 120e3).map((h) => ({ t: h.t, p: h.p }));
+    const e = limWindow(wd, { used, resetsAt, updatedAt: snap.receivedAt }, points, now);
+    out.push({ key: sc.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'scoped', label: sc.label, ...e,
+      severity: typeof sc.severity === 'string' ? sc.severity : null, isActive: sc.is_active === true });
+  }
+  return out;
+}
+
+function limExtraUsage(valid) {
+  let snap = null;
+  for (const s of valid) if (s.extra_usage && s.extra_usage.is_enabled === true && (!snap || s.receivedAt > snap.receivedAt)) snap = s;
+  if (!snap) return null;
+  const x = snap.extra_usage;
+  return { enabled: true, monthlyLimit: limFiniteNum(x.monthly_limit), usedCredits: limFiniteNum(x.used_credits), utilization: limFiniteNum(x.utilization), currency: typeof x.currency === 'string' ? x.currency : null };
 }
 
 // snaps: parsed snapshot files; hist: [{t,w,p,r}] from history.jsonl. Pure: everything depends on the arguments and `now`.
@@ -1716,6 +1747,9 @@ function computeLimits(snaps, hist, now) {
     const points = (hist || []).filter((h) => h && h.w === wd.key && limFiniteNum(h.t) != null && limFiniteNum(h.p) != null &&
       (win.resetsAt == null ? h.r == null : limMs(h.r) != null && Math.abs(limMs(h.r) - win.resetsAt) < 120e3)).map((h) => ({ t: h.t, p: h.p }));
     const entry = limWindow(wd, { used: win.used, resetsAt: win.resetsAt, updatedAt }, points, now);
+    entry.source = win.s.source === 'usage' ? 'usage' : 'statusline';
+    if (typeof win.w.severity === 'string') entry.severity = win.w.severity;
+    if (typeof win.w.is_active === 'boolean') entry.isActive = win.w.is_active;
     if (name === 'spend_limit') {
       entry.usedUsd = limFiniteNum(win.w.used_usd);
       entry.limitUsd = limFiniteNum(win.w.limit_usd);
@@ -1724,11 +1758,17 @@ function computeLimits(snaps, hist, now) {
     out.windows[name] = entry;
   }
   const names = Object.keys(out.windows);
+  const scoped = limScoped(valid, hist, now);
+  if (scoped.length) out.windows.scoped = scoped;
+  const xu = limExtraUsage(valid);
+  if (xu) out.extraUsage = xu;
+  const lead = out.windows.five_hour || out.windows.seven_day;
+  if (lead) out.source = lead.source;
   if (Object.keys(reset).length) out.reset = reset; // extra: windows reported earlier that have since reset (their old resetsAt, ms)
   out.activeSessions = valid.filter((s) => now - s.receivedAt < LIM_STALE_MS).length;
-  if (!names.length) { out.reason = hasData ? 'no-data' : 'not-subscriber'; return out; }
+  if (!names.length && !scoped.length) { out.reason = hasData ? 'no-data' : 'not-subscriber'; return out; }
   out.available = true;
-  out.updatedAt = Math.max(...names.map((n) => out.windows[n].updatedAt));
+  out.updatedAt = Math.max(...names.map((n) => out.windows[n].updatedAt), ...scoped.map((w) => w.updatedAt));
   if (now - out.updatedAt > LIM_STALE_MS) { out.stale = true; out.reason = 'stale'; }
   return out;
 }
@@ -1814,13 +1854,16 @@ function statuslineInstalled(now = Date.now()) {
 function limitsPayload(now = Date.now()) {
   const p = computeLimits([...LIM.snaps.values()].map((x) => x.snap), LIM.hist.points, now);
   p.installed = statuslineInstalled(now);
+  p.probe = probePublic(now);
   return p;
 }
 
 // What counts as a change worth pushing: values, status, reset time, availability. Not the ticking clock.
 function limitsKey(p) {
   return JSON.stringify([p.available, p.reason || null, !!p.stale, p.installed, p.updatedAt, p.sessions, p.activeSessions,
-    Object.entries(p.windows).map(([k, w]) => [k, w.usedPct, w.resetsAt, w.status, w.burnPerHour, w.updatedAt]), p.reset ? Object.keys(p.reset).sort() : null]);
+    Object.entries(p.windows).filter(([k]) => k !== 'scoped').map(([k, w]) => [k, w.usedPct, w.resetsAt, w.status, w.burnPerHour, w.updatedAt, w.isActive, w.severity]),
+    (p.windows.scoped || []).map((w) => [w.key, w.usedPct, w.resetsAt, w.status, w.isActive]), p.extraUsage || null, p.source,
+    p.probe ? [p.probe.enabled, p.probe.ok, p.probe.lastError, p.probe.running] : null, p.reset ? Object.keys(p.reset).sort() : null]);
 }
 
 function limitsBroadcast(fresh) {
@@ -1856,8 +1899,295 @@ function limitsEnsureWatch(now = Date.now()) {
 }
 
 function limitsStop() {
+  probeStop();
   if (LIM.watcher) { try { LIM.watcher.close(); } catch { /* ignore */ } LIM.watcher = null; }
   if (LIM.kick) { clearTimeout(LIM.kick); LIM.kick = null; }
+}
+
+// ---------------------------------------------------------------- plan limits: Claude Code's documented /usage report
+// `claude -p --input-format stream-json` with the single prompt "/usage" is answered locally by Claude Code (no model call, no
+// transcript, total_cost_usd 0) with an assistant message carrying `usage_report.rate_limits` (Agent SDK: SDKUsageReport).
+// We run it on a schedule and store the result as the pseudo-session snapshot `usage-probe`, the same shape the status line writes.
+// No credentials are read and no HTTP endpoint is called by CCUsageX; only the documented CLI command runs, with fixed arguments.
+
+const PROBE_ARGS = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--no-session-persistence'];
+const PROBE_INPUT = '{"type":"user","message":{"role":"user","content":"/usage"}}\n';
+const PROBE_TIMEOUT_MS = 30e3;
+const PROBE_FAST_MS = 2 * 60e3;       // while the dashboard is being looked at
+const PROBE_SLOW_MS = 15 * 60e3;      // otherwise, and after repeated failures
+const PROBE_VIEW_MS = 10 * 60e3;      // "being looked at" = an SSE subscriber or an /api request within this time
+const PROBE_FIRST_MS = 3e3;
+const PROBE_MIN_GAP_MS = 20e3;        // ?refresh=1 will not start a probe closer than this to the previous one
+const PROBE_WAIT_CAP_MS = 15e3;       // ...and waits at most this long for it
+const PROBE_OUT_MAX = 4 << 20;
+const PROBE = {
+  started: false, timer: null, startAt: 0, running: null, lastStartAt: 0, lastAt: 0, lastOkAt: 0, lastOk: false, lastError: null,
+  fails: 0, viewAt: 0, noLimits: false, bin: null, binAt: 0, prev: null, prevLoaded: false, timeoutMs: PROBE_TIMEOUT_MS,
+};
+function probeEnabled() { return process.env.CCU_LIMITS_PROBE !== '0'; }
+
+function probeIsFile(f) { try { return fs.statSync(f).isFile(); } catch { return false; } }
+
+function probeVersionKey(name) { // anthropic.claude-code-2.1.296-win32-x64 -> [2,1,296]
+  const m = /claude-code-(\d+(?:\.\d+)*)/.exec(name);
+  return m ? m[1].split('.').map(Number) : [];
+}
+function probeCmpVer(a, b) { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] || 0) - (b[i] || 0); if (d) return d; } return 0; }
+
+// -> { cmd, args, shell } | null.  CCU_CLAUDE_BIN: a JSON array ["cmd", "arg", ...], a .js/.mjs/.cjs script (run with this node), or an executable path.
+function probeResolveBin() {
+  const env = process.env.CCU_CLAUDE_BIN;
+  if (env && env.trim()) {
+    const v = env.trim();
+    if (v[0] === '[') {
+      try {
+        const a = JSON.parse(v);
+        if (Array.isArray(a) && a.length && a.every((x) => typeof x === 'string')) return { cmd: a[0], args: [...a.slice(1), ...PROBE_ARGS], shell: false };
+      } catch { /* fall through */ }
+      return null;
+    }
+    if (/\.(m|c)?js$/i.test(v)) return { cmd: process.execPath, args: [v, ...PROBE_ARGS], shell: false };
+    return { cmd: v, args: PROBE_ARGS, shell: /\.(cmd|bat)$/i.test(v) };
+  }
+  const win = process.platform === 'win32';
+  const names = win ? ['claude.exe', 'claude.cmd'] : ['claude'];
+  for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
+    if (!dir) continue;
+    for (const n of names) {
+      const f = path.join(dir.replace(/^"|"$/g, ''), n);
+      if (probeIsFile(f)) return { cmd: f, args: PROBE_ARGS, shell: /\.(cmd|bat)$/i.test(f) };
+    }
+  }
+  const home = os.homedir();
+  const exe = win ? 'claude.exe' : 'claude';
+  for (const root of ['.vscode', '.vscode-insiders', '.cursor', '.windsurf']) {
+    const dir = path.join(home, root, 'extensions');
+    let list = [];
+    try { list = fs.readdirSync(dir).filter((n) => /^anthropic\.claude-code-\d/.test(n)); } catch { continue; }
+    list.sort((a, b) => probeCmpVer(probeVersionKey(b), probeVersionKey(a)));
+    for (const n of list) {
+      const f = path.join(dir, n, 'resources', 'native-binary', exe);
+      if (probeIsFile(f)) return { cmd: f, args: PROBE_ARGS, shell: false };
+    }
+  }
+  return null;
+}
+
+// First line of Claude Code's stream-json output that carries a usage report (top level, or inside `message`).
+function probeParseOutput(text) {
+  for (const ln of String(text).split('\n')) {
+    if (ln.indexOf('usage_report') < 0) continue;
+    let j;
+    try { j = JSON.parse(ln); } catch { continue; }
+    const r = j && (j.usage_report || (j.message && j.message.usage_report));
+    if (r && typeof r === 'object') return r;
+  }
+  return null;
+}
+
+const probeMinute = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? Math.round(t / 60e3) * 60e3 : null; }; // resets_at jitters by sub-seconds between calls
+
+function probeScopeLabel(sc) {
+  if (!sc || typeof sc !== 'object') return null;
+  const m = sc.model && (sc.model.display_name || sc.model.name);
+  const sf = typeof sc.surface === 'string' ? sc.surface : sc.surface && (sc.surface.display_name || sc.surface.name);
+  return (typeof m === 'string' && m) || (typeof sf === 'string' && sf) || null;
+}
+
+// usage_report -> snapshot (pure). rate_limits null -> `rate_limits: null` (API key / 3P / token without user:profile scope).
+function probeSnapshot(report, now) {
+  const snap = { receivedAt: now, sessionId: 'usage-probe', source: 'usage', rate_limits: null };
+  const rl = report && report.rate_limits;
+  if (!rl || typeof rl !== 'object') return snap;
+  const lim = Array.isArray(rl.limits) ? rl.limits : [];
+  const win = (l) => {
+    const used = limFiniteNum(l.percent), at = probeMinute(l.resets_at);
+    if (used == null || at == null) return null;
+    return { used_percentage: used, resets_at: at, ...(typeof l.severity === 'string' ? { severity: l.severity } : {}), ...(typeof l.is_active === 'boolean' ? { is_active: l.is_active } : {}) };
+  };
+  snap.rate_limits = {};
+  const scoped = [];
+  const seen = new Set();
+  for (const l of lim) {
+    if (!l || typeof l !== 'object') continue;
+    const w = win(l);
+    if (!w) continue;
+    if (l.kind === 'session' && !snap.rate_limits.five_hour) snap.rate_limits.five_hour = w;
+    else if (l.kind === 'weekly_all' && !snap.rate_limits.seven_day) snap.rate_limits.seven_day = w;
+    else if (l.kind === 'weekly_scoped') {
+      let label = probeScopeLabel(l.scope) || 'Scoped';
+      if (seen.has(label)) label += ' #' + (scoped.length + 1);
+      seen.add(label);
+      scoped.push({ label, used_percentage: w.used_percentage, resets_at: w.resets_at, severity: w.severity || null, is_active: w.is_active === true });
+    }
+  }
+  if (scoped.length) snap.scoped = scoped;
+  const x = rl.extra_usage;
+  if (x && typeof x === 'object' && x.is_enabled === true) snap.extra_usage = { is_enabled: true, monthly_limit: limFiniteNum(x.monthly_limit), used_credits: limFiniteNum(x.used_credits), utilization: limFiniteNum(x.utilization), currency: typeof x.currency === 'string' ? x.currency : null };
+  return snap;
+}
+
+function probePoints(snap) { // [{w, p, r}] with history keys '5h' | '7d' | '7d:<label>'; r in epoch seconds like the status line writes
+  const out = [];
+  const rl = snap && snap.rate_limits;
+  if (rl) {
+    if (rl.five_hour) out.push({ w: '5h', p: rl.five_hour.used_percentage, r: Math.round(rl.five_hour.resets_at / 1000) });
+    if (rl.seven_day) out.push({ w: '7d', p: rl.seven_day.used_percentage, r: Math.round(rl.seven_day.resets_at / 1000) });
+  }
+  for (const s of (snap && snap.scoped) || []) out.push({ w: '7d:' + s.label, p: s.used_percentage, r: Math.round(s.resets_at / 1000) });
+  return out;
+}
+
+function probeCapHistory(file, max) {
+  try {
+    if (fs.statSync(file).size <= max) return;
+    const buf = fs.readFileSync(file);
+    let cut = buf.indexOf(0x0a, Math.floor(buf.length / 2));
+    cut = cut < 0 ? Math.floor(buf.length / 2) : cut + 1;
+    const tmp = file + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, buf.subarray(cut));
+    fs.renameSync(tmp, file);
+  } catch { /* the status line caps it too */ }
+}
+
+// Persist the snapshot (limits/usage-probe.json) and append history lines for windows whose value or reset time changed.
+function probeStore(snap) {
+  fs.mkdirSync(LIM_DIR, { recursive: true });
+  const file = path.join(LIM_DIR, 'usage-probe.json');
+  if (!PROBE.prevLoaded) { PROBE.prevLoaded = true; try { PROBE.prev = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { PROBE.prev = null; } }
+  const prev = PROBE.prev;
+  if (!snap.rate_limits && prev && prev.rate_limits) return false; // keep the last good report (it just ages)
+  const cur = probePoints(snap), old = prev ? probePoints(prev) : null;
+  const sig = (pts) => JSON.stringify((pts || []).map((x) => [x.w, x.p, x.r]));
+  snap.changedAt = prev && prev.changedAt && sig(old) === sig(cur) ? prev.changedAt : snap.receivedAt;
+  const tmp = file + '.' + process.pid + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(snap));
+  fs.renameSync(tmp, file);
+  let lines = '';
+  for (const c of cur) {
+    const b = old && old.find((x) => x.w === c.w);
+    if (b && b.p === c.p && b.r === c.r) continue;
+    lines += JSON.stringify({ t: snap.receivedAt, w: c.w, p: c.p, r: c.r }) + '\n';
+  }
+  if (lines) {
+    const hf = path.join(LIM_DIR, 'history.jsonl');
+    fs.appendFileSync(hf, lines);
+    probeCapHistory(hf, 5 * 1024 * 1024);
+  }
+  PROBE.prev = snap;
+  return true;
+}
+
+// Runs the probe once. Resolves { ok, report } | { ok:false, error } and never rejects.
+function probeExec() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (r) => { if (!done) { done = true; resolve(r); } };
+    const nowMs = Date.now();
+    if (!PROBE.bin || nowMs - PROBE.binAt > 5 * 60e3) { PROBE.bin = probeResolveBin(); PROBE.binAt = nowMs; }
+    const bin = PROBE.bin;
+    if (!bin) return finish({ ok: false, error: 'claude not found' });
+    let child;
+    try {
+      // a .cmd shim needs a shell; the arguments are fixed constants, so one quoted command line is safe (and avoids Node's DEP0190)
+      child = bin.shell
+        ? require('child_process').spawn('"' + bin.cmd + '" ' + bin.args.join(' '), { cwd: os.tmpdir(), shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] })
+        : require('child_process').spawn(bin.cmd, bin.args, { cwd: os.tmpdir(), windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+    } catch { return finish({ ok: false, error: 'cannot start claude' }); }
+    let out = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { if (process.platform === 'win32' && child.pid) require('child_process').spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => {}); } catch { /* ignore */ }
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      setTimeout(() => finish({ ok: false, error: 'timeout' }), 500).unref();
+    }, PROBE.timeoutMs);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d) => { if (out.length < PROBE_OUT_MAX) out += d; });
+    child.stdout.on('error', () => {});
+    child.stdin.on('error', () => {});
+    child.on('error', (e) => { clearTimeout(timer); finish({ ok: false, error: e && e.code === 'ENOENT' ? 'claude not found' : 'cannot start claude' }); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (timedOut) return finish({ ok: false, error: 'timeout' });
+      const rep = probeParseOutput(out);
+      if (!rep) return finish({ ok: false, error: code ? 'claude exited with code ' + code : 'no usage report in the output' });
+      finish({ ok: true, report: rep });
+    });
+    try { child.stdin.end(PROBE_INPUT); } catch { /* the error handler reports */ }
+  });
+}
+
+// One probe cycle: run, store, update the status. Never overlaps (returns the running promise), never throws.
+function probeRun() {
+  if (PROBE.running) return PROBE.running;
+  PROBE.lastStartAt = Date.now();
+  const p = (async () => {
+    let r;
+    try { r = await probeExec(); } catch { r = { ok: false, error: 'probe failed' }; }
+    const now = Date.now();
+    PROBE.lastAt = now;
+    if (r.ok) {
+      try {
+        const snap = probeSnapshot(r.report, now);
+        PROBE.noLimits = !snap.rate_limits;
+        probeStore(snap);
+        PROBE.lastOk = true; PROBE.lastOkAt = now; PROBE.lastError = null; PROBE.fails = 0;
+      } catch { PROBE.lastOk = false; PROBE.lastError = 'could not save the report'; PROBE.fails++; }
+    } else { PROBE.lastOk = false; PROBE.lastError = r.error || 'probe failed'; PROBE.fails++; }
+    PROBE.running = null;
+    try { limitsRefresh(0); limitsBroadcast(true); } catch (e) { lastError = 'limits: ' + String(e && e.message || e); }
+  })();
+  PROBE.running = p;
+  return p;
+}
+
+function probeInterval(now = Date.now()) {
+  if (PROBE.fails >= 3) return PROBE_SLOW_MS;
+  return LV.subs.size || now - PROBE.viewAt < PROBE_VIEW_MS ? PROBE_FAST_MS : PROBE_SLOW_MS;
+}
+function probeNextAt(now = Date.now()) {
+  if (!probeEnabled() || !PROBE.started) return null;
+  return PROBE.lastStartAt ? PROBE.lastStartAt + probeInterval(now) : PROBE.startAt;
+}
+function probeTick() {
+  const now = Date.now();
+  if (!probeEnabled() || PROBE.running) return;
+  if (now >= probeNextAt(now)) probeRun();
+}
+function probeTouch() { PROBE.viewAt = Date.now(); } // an /api request: somebody is looking
+
+function probeStart() {
+  if (PROBE.started || !probeEnabled()) return;
+  PROBE.started = true;
+  PROBE.startAt = Date.now() + PROBE_FIRST_MS;
+  PROBE.timer = setInterval(probeTick, 1000);
+  PROBE.timer.unref();
+}
+function probeStop() {
+  if (PROBE.timer) { clearInterval(PROBE.timer); PROBE.timer = null; }
+  PROBE.started = false;
+}
+
+// ?refresh=1: start a probe unless one began less than 20 s ago, wait for the running one (at most 15 s).
+function probeRefresh() {
+  if (!probeEnabled()) return Promise.resolve();
+  if (!PROBE.running && Date.now() - PROBE.lastStartAt >= PROBE_MIN_GAP_MS) probeRun();
+  if (!PROBE.running) return Promise.resolve();
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, PROBE_WAIT_CAP_MS);
+    t.unref();
+    PROBE.running.then(() => { clearTimeout(t); resolve(); });
+  });
+}
+
+function probePublic(now = Date.now()) {
+  const enabled = probeEnabled();
+  return {
+    enabled, ok: enabled && PROBE.lastOk, lastAt: PROBE.lastAt || null, lastOkAt: PROBE.lastOkAt || null, lastError: enabled ? PROBE.lastError : null,
+    nextAt: enabled ? probeNextAt(now) : null, intervalMs: probeInterval(now), running: !!PROBE.running,
+    ...(PROBE.noLimits && PROBE.lastOk ? { noLimits: true } : {}),
+  };
 }
 
 // ---------------------------------------------------------------- http
@@ -1891,6 +2221,7 @@ function handle(req, res) {
     const u = new URL(req.url, 'http://localhost');
     const q = u.searchParams;
     const key = u.pathname + '?' + q.toString();
+    if (u.pathname.startsWith('/api/')) probeTouch();
     switch (u.pathname) {
       case '/api/status': return sendJson(res, status());
       case '/api/options': return sendRaw(res, memoJson(key, filterOptions));
@@ -1902,6 +2233,10 @@ function handle(req, res) {
         if (Date.now() - (lastScanAt || 0) > 1500) scan(); // freshest possible answer for the live indicator
         return sendJson(res, live());
       case '/api/limits':
+        if (q.get('refresh') === '1' && probeEnabled()) {
+          return probeRefresh().then(() => { limitsRefresh(0); sendJson(res, limitsPayload()); })
+            .catch(() => { if (!res.headersSent) sendJson(res, { error: 'limits unavailable' }, 500); });
+        }
         limitsRefresh(0);
         return sendJson(res, limitsPayload());
       case '/api/stream': return sseConnect(req, res, u);
@@ -1959,6 +2294,7 @@ if (require.main === module) {
   scan();
   const timer = setInterval(scan, Math.max(2, CONFIG.scanIntervalSeconds || 5) * 1000);
   start(PORT, HOST).then(() => {
+    probeStart();
     console.log(`CCUsageX on http://${HOST}:${PORT}  (reading ${PROJECTS_DIR}, since ${START_DATE})`);
   }).catch((e) => {
     console.error(e && e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use.` : String(e && e.stack || e));
@@ -1973,6 +2309,6 @@ if (require.main === module) {
 
 module.exports = {
   start, createServer, handle, scan, scanFile, handleLine, loadStore, saveStore, resetState, newFstate,
-  liveState, stopLive, computeLimits, limitsPayload, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
+  liveState, stopLive, computeLimits, limitsPayload, probeStart, probeStop, probeRun, probeRefresh, probePublic, probeParseOutput, probeSnapshot, probeResolveBin, probeInterval, probeTouch, _probe: PROBE, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
   _state: { get store() { return store; }, reqMap, byPrompt, STORE_FILE, START_MS, PROJECTS_DIR },
 };

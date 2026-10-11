@@ -422,7 +422,7 @@
       high:  { f: { used: 92, left: 1.35, burn: 21 },   s: { used: 76, left: 49, burn: 0.62 } },
       limit: { f: { used: 100, left: 0.82, burn: 0 },   s: { used: 83, left: 30, burn: 0.55 } },
       stale: { f: { used: 62, left: 2.24, burn: 13.5 }, s: { used: 41, left: 76.5, burn: 0.46 }, ageMin: 23 },
-      '5h':  { f: { used: 29, left: 3.6, burn: 6.2 } },
+      '5h':  { f: { used: 29, left: 3.6, burn: 6.2 }, noScoped: true },
       reset: { resetOnly: true }
     };
     function curve(used, startT, nowT, steps) { // monotonic fictional history ending at `used`
@@ -455,7 +455,15 @@
       var w = {};
       if (sc.f) w.five_hour = win(sc.f, 5 * H, now, upd);
       if (sc.s) w.seven_day = win(sc.s, 7 * 24 * H, now, upd);
-      var p = { available: true, source: 'statusline', updatedAt: upd, windows: w, sessions: 1, now: now };
+      if (!sc.noScoped) {
+        w.scoped = [
+          Object.assign({ key: 'opus', label: 'Opus', severity: 'normal', isActive: false }, win({ used: 34, left: 76.5, burn: 0.3 }, 7 * 24 * H, now, upd)),
+          Object.assign({ key: 'sonnet', label: 'Sonnet', severity: 'normal', isActive: false }, win({ used: 12, left: 76.5, burn: 0.1 }, 7 * 24 * H, now, upd))
+        ];
+        if (w.seven_day) w.seven_day.isActive = true;
+      }
+      var p = { available: true, source: 'usage', updatedAt: upd, windows: w, sessions: 1, now: now,
+        probe: { enabled: true, ok: !sc.ageMin, lastAt: upd, lastOkAt: upd, lastError: null, nextAt: now + 120000, intervalMs: 120000, running: false } };
       if (sc.ageMin) { p.stale = true; p.reason = 'stale'; }
       return p;
     }

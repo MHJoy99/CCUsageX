@@ -51,29 +51,32 @@ whichever fits your workflow, or both to cross-check.
 
 Yes. CCUsageX reads local transcript files, and those are written whichever plan you are on. The costs it shows are
 API-equivalent values for the usage, not what your plan charges. Your 5-hour and weekly plan limits are a separate
-feature. They are shown only on Pro and Max, and only after you install the status line hook. See
+feature. They are shown only on Pro and Max, and refresh automatically from Claude Code's `/usage` report. See
 [How do I see my plan usage limits?](#how-do-i-see-my-plan-usage-limits-5-hour-and-weekly).
 
 ## How do I see my plan usage limits (5-hour and weekly)?
 
-Run `npm run statusline:install` once in the repository folder, or `node scripts/install-statusline.js --install`.
-Claude Code then passes its usage-limit numbers to the CCUsageX status line hook on every reply, and CCUsageX shows the
-5-hour session and 7-day weekly windows with their reset times and a pace projection. Check the result with
-`node scripts/install-statusline.js --status`. The numbers appear after your first reply in a Claude Code session, and
-only on Pro and Max plans. [Plan usage limits](ARCHITECTURE.md#plan-usage-limits) describes the data source.
+There is nothing to set up. CCUsageX runs Claude Code's documented `/usage` report in the background (a local command: no
+model tokens, no transcript) and shows the 5-hour session and 7-day weekly windows with their reset times and a pace
+projection, plus the per-model weekly limits when Claude Code reports them. It refreshes every 2 minutes while you look at
+the dashboard, and the refresh button on the card does it on demand. This works for the terminal app and the VS Code
+panel alike, on Pro and Max plans only. The status line (`npm run statusline:install`) is optional and only adds instant
+updates in terminal sessions. [Plan usage limits](ARCHITECTURE.md#plan-usage-limits) describes the data source.
 
 ## Why does the limits card say there is no data yet?
 
 The card explains which state it is in. The usual reasons are:
 
-- **The status line is not set up.** Run `npm run statusline:install`, then send one message in Claude Code.
-- **No reply yet in this session.** Claude Code sends the numbers with its first response, so wait for it to finish.
-- **Not a Pro or Max plan.** Claude Code reports these limits only for claude.ai subscriptions. API-key plans have no
-  limit data.
-- **Stale.** The last snapshot is more than 15 minutes old, usually because no Claude Code session has been active.
+- **The automatic refresh cannot run.** CCUsageX could not start `claude` (not on your `PATH`, or `CCU_LIMITS_PROBE=0`).
+  The card shows the short reason. Set `CCU_CLAUDE_BIN` to the full path of the `claude` binary, or set up the status line
+  as a fallback with `npm run statusline:install` and send one message in terminal `claude`.
+- **Not a Pro or Max plan.** Claude Code reports these limits only for claude.ai subscriptions. API-key plans, third-party
+  providers and logins without profile access have no limit data.
+- **Stale.** The last report is more than 15 minutes old. With the automatic refresh working this clears itself within
+  a couple of minutes.
 
-`node scripts/install-statusline.js --status` prints whether the hook is installed and whether its helper script is
-present.
+`node scripts/install-statusline.js --status` prints whether the status line hook is installed and whether its helper
+script is present.
 
 ## Will installing the status line change my Claude Code settings? Can I undo it?
 
@@ -84,22 +87,22 @@ line, it keeps running: CCUsageX calls it with `--chain` and shows its output, a
 line exactly and removes the saved key. `--dry-run` shows the change without writing anything. An invalid
 `settings.json` stops the installer before it writes anything.
 
-## I use the VS Code extension. Why do the limits not update?
+## I use the VS Code extension. Do the limits update?
 
-The numbers come from Claude Code's status line, which the terminal `claude` app runs. In testing, the VS Code panel
-(and the headless mode it uses) never reported limits. Send a message in terminal `claude` and the card updates within a second. Values older than 15 minutes
-are marked stale, with the time of the last update.
+Yes. The numbers come from Claude Code's `/usage` report, which CCUsageX asks for in the background, so they do not
+depend on which Claude Code app you use. Only the optional status line works in terminal sessions alone.
 
-## Why are there no Opus or Sonnet limits?
+## Are there Opus or Sonnet limits?
 
-Claude Code reports only two overall windows to the status line: the 5-hour session window and the 7-day weekly window.
-It does not report separate limits per model, so CCUsageX cannot show them and does not estimate them.
+When Claude Code reports per-model weekly limits in its `/usage` report, the card shows them under "Weekly limits by
+model", with the limit Claude Code marks as active tagged "binding". If your plan has none, the row is hidden. CCUsageX
+never estimates them.
 
 ## Does the limits feature read my login or call Anthropic?
 
-No. CCUsageX reads only the JSON that Claude Code passes to the status line command. It does not read
-`~/.claude/.credentials.json`, does not call any usage endpoint, and makes no network request. The snapshots are
-written to `~/.ccusagex/limits/` (or `$CCU_DATA_DIR/limits/`) on your machine.
+No. CCUsageX does not read `~/.claude/.credentials.json`, does not call any usage endpoint, and makes no network request
+itself. It runs the local `claude -p` command with the prompt `/usage`, which Claude Code answers on your machine without
+a model call, and stores the result in `~/.ccusagex/limits/` (or `$CCU_DATA_DIR/limits/`).
 
 ## How do I change prices or the start date?
 

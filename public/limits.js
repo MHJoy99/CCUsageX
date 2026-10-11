@@ -1,6 +1,7 @@
 /* CCUsageX - Plan limits (5-hour session + 7-day weekly window).
  * Data: GET /api/limits (+ SSE `event: limits` and `limits` inside /api/live/state, relayed by live.js via CCULimits.push()).
- * Source of truth is Claude Code's status line (same numbers as /usage); contract in .team/LIMITS.md.
+ * Source: Claude Code's documented /usage report (probed by the server every 2 min while the page is open), with the status
+ * line as an optional faster source in terminal sessions. Same numbers as /usage; contract in .team/LIMITS.md.
  * Renders into every `[data-limits]` host (cards: "overview" / "live") and the header pill `[data-limits-pill]`.
  * Degrades gracefully: a missing endpoint (404) is shown as "not set up". Reduced-motion safe, no layout shift. */
 (function () {
@@ -12,7 +13,7 @@
     { key: 'seven_day', short: '7d', title: 'Weekly', sub: '7-day', ms: 7 * DAY }
   ];
   var STALE_MS = 15 * 60000;
-  var TIP = 'Reported by Claude Code\u2019s status line \u2014 the same numbers as /usage. Claude Code doesn\u2019t expose separate Opus/Sonnet limits.';
+  var TIP = 'From Claude Code\u2019s /usage report (same numbers as /usage). Refreshed automatically; no model tokens used.';
   var SETUP_CMD = 'npm run statusline:install';
   var SETUP_JSON = '{\n  "statusLine": {\n    "type": "command",\n    "command": "node \\"/path/to/CCUsageX/scripts/statusline.js\\"",\n    "padding": 0,\n    "refreshInterval": 30\n  }\n}';
 
@@ -24,7 +25,8 @@
   var M = {
     phase: 'loading',        // loading | ok | setup | waiting | nosub | error
     reason: '', stale: false, updatedAt: 0, fetchedAt: 0,
-    win: { five_hour: null, seven_day: null }, reset: {}, spend: null, version: 0, sessions: 0
+    win: { five_hour: null, seven_day: null }, reset: {}, spend: null, version: 0, sessions: 0,
+    scoped: [], extra: null, source: 'usage', probe: null
   };
   var TW = {};               // per-window tween {cur, from, to, t0, dur, has}
   WINDOWS.forEach(function (w) { TW[w.key] = { cur: 0, from: 0, to: 0, t0: 0, dur: 0, has: false }; });
@@ -37,6 +39,8 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
   function statusOf(p) { return p >= 100 ? 'limit' : p >= 90 ? 'high' : p >= 70 ? 'watch' : 'ok'; }
+  // A window that is still under 70% but projected to hit 100% before it resets is flagged, so the chip never says Healthy next to a red forecast.
+  function heading(w) { var n = now(); return !!(w && w.hitAt && w.hitAt < w.resetsAt && w.hitAt > n - 60000 && statusOf(w.used) === 'ok'); }
   var ST_LABEL = { ok: 'Healthy', watch: 'Watch', high: 'High', limit: 'Limit reached' };
   var ST_SHORT = { ok: 'OK', watch: 'Watch', high: 'High', limit: 'Limit' };
   var ST_RANK = { ok: 0, watch: 1, high: 2, limit: 3 };
@@ -57,6 +61,21 @@
       history: hist
     };
   }
+
+  function normalizeScoped(list) {
+    if (!Array.isArray(list)) return [];
+    var out = [];
+    list.forEach(function (w) {
+      var n = normalizeWindow(w, { ms: 7 * DAY });
+      if (!n || !w.label) return;
+      n.key = String(w.key || w.label); n.label = String(w.label); n.active = w.isActive === true;
+      out.push(n);
+    });
+    return out;
+  }
+  function probeOk() { return !!(M.probe && M.probe.enabled && M.probe.ok); }
+  function probeBad() { return !M.probe || !M.probe.enabled || (!M.probe.ok && !!M.probe.lastError); }
+  function probeWarming() { return !!(M.probe && M.probe.enabled && !M.probe.lastAt && !M.probe.lastError); }
 
   function ingest(p) {
     if (!p || typeof p !== 'object') return;
@@ -84,11 +103,17 @@
       period: sl.period || ''
     } : null;
     M.reset = p.reset && typeof p.reset === 'object' ? p.reset : {};
+    M.scoped = normalizeScoped(ws.scoped);
+    M.extra = p.extraUsage && p.extraUsage.enabled ? p.extraUsage : null;
+    M.source = p.source === 'statusline' ? 'statusline' : 'usage';
+    M.probe = p.probe && typeof p.probe === 'object' ? p.probe : null;
+    if (M.scoped.length) any = true;
     if (any || M.spend || Object.keys(M.reset).length) {
       M.phase = 'ok';
       M.stale = M.reason === 'stale' || (M.updatedAt > 0 && now() - M.updatedAt > STALE_MS);
     } else if (p.available === false && M.reason === 'not-subscriber') { M.phase = 'nosub'; M.stale = false; }
     else if (p.available && M.updatedAt) { M.phase = 'nosub'; M.stale = false; }
+    else if (probeWarming()) { M.phase = 'loading'; M.stale = false; }
     else if (p.installed) { M.phase = 'waiting'; M.stale = false; }
     else { M.phase = 'setup'; M.stale = false; }
     WINDOWS.forEach(function (d) { retarget(d.key); });
@@ -98,7 +123,10 @@
 
   function dataSig(p) {
     var ws = p.windows || {};
-    return JSON.stringify([p.available, p.reason, p.installed, p.stale, p.updatedAt, p.sessions, p.reset || null, Object.keys(ws).map(function (k) {
+    var pr = p.probe || {};
+    return JSON.stringify([p.available, p.reason, p.installed, p.stale, p.updatedAt, p.sessions, p.reset || null, p.source, p.extraUsage || null,
+      [pr.enabled, pr.ok, pr.lastAt, pr.lastError, pr.intervalMs], Object.keys(ws).map(function (k) {
+      if (k === 'scoped') return [k, (ws[k] || []).map(function (x) { return [x.key, x.usedPct, x.resetsAt, x.isActive, x.updatedAt]; })];
       var w = ws[k] || {}, h = w.history || [];
       return [k, w.usedPct, w.resetsAt, w.burnPerHour, w.projectedPctAtReset, w.projectedHitAt, w.usedUsd, h.length, h.length ? h[h.length - 1].t : 0];
     })]);
@@ -184,12 +212,12 @@
   }
   function winLabel(d) { return d.title + ' <i>\u00b7 ' + d.sub + '</i>'; }
 
-  function panelLive(d, st) {
+  function panelLive(d, st, hot) {
     return '<div class="lim-p" data-k="' + d.key + '" data-kind="live" data-st="' + st + '">' +
       '<div class="lim-ring" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="' + d.title + ' ' + d.sub + ' window used">' + ringSvg() +
       '<div class="lim-ring-c"><div class="lim-pct"><b data-pct>0</b><sup>%</sup></div><small>used</small></div></div>' +
       '<div class="lim-main">' +
-      '<div class="lim-head"><h4>' + winLabel(d) + '</h4><span class="lim-chip" data-st="' + st + '">' + IC[st] + ST_LABEL[st] + '</span></div>' +
+      '<div class="lim-head"><h4>' + winLabel(d) + '</h4>' + (hot ? '<span class="lim-chip" data-st="watch">' + IC.watch + 'Heading for limit</span>' : '<span class="lim-chip" data-st="' + st + '">' + IC[st] + ST_LABEL[st] + '</span>') + '</div>' +
       '<div class="lim-reset"><span class="lim-in">resets in <b data-rin></b></span><span class="lim-at" data-rat></span></div>' +
       '</div>' +
       '<div class="lim-extra"><div class="lim-pace" data-pace></div><div class="lim-proj" data-proj></div><div class="lim-spark" data-spark></div></div>' +
@@ -198,7 +226,9 @@
   function panelIdle(d, kind) {
     var msg = kind === 'reset'
       ? ['Window reset', 'A new window starts with your next message to Claude.']
-      : ['Not reported yet', 'Claude Code sends this after the first reply of a session.'];
+      : probeOk()
+        ? ['No active window', 'Claude Code reports no usage for this window yet. It starts with your next message.']
+        : ['Not reported yet', 'Claude Code sends this after the first reply of a session.'];
     return '<div class="lim-p" data-k="' + d.key + '" data-kind="' + kind + '" data-st="idle">' +
       '<div class="lim-ring">' + ringSvg({ plain: true }) + '<div class="lim-ring-c"><div class="lim-pct"><b>' + (kind === 'reset' ? '0' : '\u2014') + '</b>' + (kind === 'reset' ? '<sup>%</sup>' : '') + '</div><small>' + (kind === 'reset' ? 'used' : 'no data') + '</small></div></div>' +
       '<div class="lim-main"><div class="lim-head"><h4>' + winLabel(d) + '</h4><span class="lim-chip" data-st="idle">' + IC.clock + (kind === 'reset' ? 'Reset' : 'Waiting') + '</span></div>' +
@@ -221,32 +251,37 @@
     return '<div class="lim-cmd' + (block ? ' block' : '') + '">' + (block ? '<pre><code>' + esc(text) + '</code></pre>' : '<code>' + esc(text) + '</code>') +
       '<button type="button" class="lim-copy" data-copy-text="' + esc(text) + '" aria-label="Copy ' + esc(label) + '">' + IC.copy + '<span>Copy</span></button></div>';
   }
+  function probeWhy() { // one short clause: why the automatic /usage refresh is not delivering
+    if (M.probe && M.probe.enabled === false) return ' (automatic refresh is turned off)';
+    if (M.probe && M.probe.lastError) return ' (automatic refresh failed: ' + esc(M.probe.lastError) + ')';
+    return '';
+  }
   function setupBody() {
     return '<div class="lim-note">' +
       '<div class="lim-note-ic">' + IC.gauge + '</div>' +
       '<div class="lim-note-t"><h4>Show your plan limits here</h4>' +
-      '<p>Claude Code reports your 5-hour and weekly usage to its status line. One command connects CCUsageX to it. It stays on this machine: no login, nothing is sent anywhere.</p>' +
+      '<p>CCUsageX normally reads your 5-hour and weekly usage from Claude Code’s own <code>/usage</code> report' + probeWhy() + '. As a fallback, one command connects it to Claude Code’s status line. It stays on this machine: no login, nothing is sent anywhere.</p>' +
       copyRow(SETUP_CMD, 'setup command', false) +
       '<details class="lim-det"><summary>Or add it to settings.json by hand</summary>' +
       '<p class="lim-sm">In <code>~/.claude/settings.json</code>, with the path to your CCUsageX folder:</p>' + copyRow(SETUP_JSON, 'settings.json snippet', true) + '</details>' +
       '<p class="lim-hint">' + IC.clock + 'Already set up? Numbers appear after Claude\u2019s next reply.</p>' +
-      '<p class="lim-hint lim-hint2">Limits are reported by Claude Code\u2019s status line. The VS Code panel hasn’t reported them in testing, so send a message in <code>claude</code> in a terminal.</p></div>' +
+      '<p class="lim-hint lim-hint2">The status line works only in terminal <code>claude</code> sessions.</p></div>' +
       '</div>' + ghostRings();
   }
   function waitingBody() {
     return '<div class="lim-note">' +
       '<div class="lim-note-ic">' + IC.gauge + '</div>' +
       '<div class="lim-note-t"><h4>Connected — waiting for the first report</h4>' +
-      '<p>CCUsageX is set up in Claude Code’s status line. Your 5-hour and weekly usage appear here after Claude’s next reply in the terminal app (the VS Code panel hasn’t reported them in testing).</p>' +
-      '<p class="lim-hint">' + IC.clock + 'Run <code>claude</code> in a terminal and send any message.</p></div>' +
+      '<p>CCUsageX is set up in Claude Code’s status line. Your 5-hour and weekly usage appear here after Claude’s next reply in a terminal session' + probeWhy() + '.</p>' +
+      '<p class="lim-hint">' + IC.clock + 'Run <code>claude</code> in a terminal and send any message. The status line works only in terminal sessions.</p></div>' +
       '</div>' + ghostRings();
   }
   function nosubBody() {
     return '<div class="lim-note">' +
       '<div class="lim-note-ic">' + IC.gauge + '</div>' +
       '<div class="lim-note-t"><h4>No plan limits reported yet</h4>' +
-      '<p>CCUsageX is receiving Claude Code\u2019s status line, but it hasn\u2019t sent any plan limits. Claude Code only reports 5-hour and weekly limits for <b>Claude Pro and Max</b> subscriptions, and only after the first reply of a session. With an API key there is no plan limit to show; costs on this page stay API-equivalent.</p>' +
-      '<p class="lim-hint">' + IC.clock + 'On Pro or Max? Send a message in Claude Code and this fills in.</p></div></div>' + ghostRings();
+      '<p>Claude Code answered, but it hasn\u2019t sent any plan limits. It only reports 5-hour and weekly limits for <b>Claude Pro and Max</b> logins (not API keys or third-party providers). With an API key there is no plan limit to show; costs on this page stay API-equivalent.</p>' +
+      '<p class="lim-hint">' + IC.clock + (probeOk() ? 'On Pro or Max? Sign in with your claude.ai account in Claude Code, then use the refresh button.' : 'On Pro or Max? Send a message in Claude Code and this fills in.') + '</p></div></div>' + ghostRings();
   }
   function errorBody() {
     return '<div class="lim-note"><div class="lim-note-ic">' + IC.gauge + '</div><div class="lim-note-t"><h4>Can\u2019t load plan limits</h4><p>The CCUsageX server didn\u2019t answer. Retrying automatically.</p></div></div>' + ghostRings();
@@ -255,17 +290,19 @@
   function footHtml() {
     return '<div class="lim-foot"><span class="lim-key"><i class="k-mark"></i>Marker = how much of the window has elapsed</span>' +
       '<span class="lim-key"><i class="k-ghost"></i>Faint arc = projected use at the current pace</span>' +
-      '<span class="lim-src">Reported by Claude Code\u2019s status line \u00b7 same as /usage</span></div>';
+      '<span class="lim-src">' + (M.source === 'statusline' ? 'From Claude Code\u2019s status line' : 'From Claude Code\u2019s /usage report') + ' \u00b7 same as /usage</span></div>';
   }
 
   function cardSig() {
     if (M.phase !== 'ok') return M.phase;
     var n = now();
-    return 'ok|' + (M.spend ? 's' : '') + '|' + WINDOWS.map(function (d) {
+    return 'ok|' + (M.spend ? 's' : '') + (M.extra ? 'x' : '') + '|' + scopedSig() + '|' + WINDOWS.map(function (d) {
       var w = M.win[d.key];
-      return !w ? (M.reset[d.key] ? 'reset' : 'missing') : w.resetsAt <= n ? 'reset' : 'live:' + statusOf(w.used);
+      return !w ? (M.reset[d.key] ? 'reset' : 'missing') : w.resetsAt <= n ? 'reset' : 'live:' + statusOf(w.used) + (heading(w) ? ':hot' : '');
     }).join('|');
   }
+  function scopedList() { var n = now(); return M.scoped.filter(function (w) { return w.resetsAt > n; }); }
+  function scopedSig() { return scopedList().map(function (w) { return w.key + ':' + statusOf(w.used) + (w.active ? '*' : ''); }).join(','); }
   function worstStatus() {
     var worst = 'ok';
     WINDOWS.forEach(function (d) { var w = M.win[d.key]; if (w && w.resetsAt > now()) { var s = statusOf(w.used); if (ST_RANK[s] > ST_RANK[worst]) worst = s; } });
@@ -285,16 +322,19 @@
         var w = M.win[d.key];
         if (!w) return panelIdle(d, M.reset[d.key] ? 'reset' : 'missing');
         if (w.resetsAt <= n) return panelIdle(d, 'reset');
-        return panelLive(d, statusOf(w.used));
-      }).join('') + '</div>' + (M.spend ? spendHtml() : '');
+        return panelLive(d, statusOf(w.used), heading(w));
+      }).join('') + '</div>' + scopedHtml() + (M.spend ? spendHtml() : '') + (M.extra ? extraHtml() : '');
     }
     host.el.innerHTML =
       '<div class="lim-top"><div class="lim-title"><h3><span class="sq"></span>Plan limits</h3>' + tipHtml() + '</div>' +
-      '<div class="lim-meta" data-meta></div></div>' +
+      '<div class="lim-meta"><span class="lim-meta-t" data-meta></span>' + refreshBtn() + '</div></div>' +
       '<div class="lim-body">' + inner + '</div>' + (M.phase === 'ok' || M.phase === 'loading' ? footHtml() : '');
     host.el.setAttribute('data-phase', M.phase);
     host.sig = sig;
-    host.r = { meta: host.el.querySelector('[data-meta]'), panels: {}, spend: host.el.querySelector('[data-spend]') };
+    host.r = { meta: host.el.querySelector('[data-meta]'), panels: {}, spend: host.el.querySelector('[data-spend]'), sc: {} };
+    Array.prototype.forEach.call(host.el.querySelectorAll('.lim-sc'), function (el) {
+      host.r.sc[el.getAttribute('data-sk')] = { el: el, bar: el.querySelector('.lim-bar b'), meter: el.querySelector('[role="meter"]'), pct: el.querySelector('[data-scp]'), rst: el.querySelector('[data-scr]'), txt: {} };
+    });
     WINDOWS.forEach(function (d) {
       var p = host.el.querySelector('.lim-p[data-k="' + d.key + '"]');
       if (!p) return;
@@ -304,6 +344,29 @@
         pace: p.querySelector('[data-pace]'), proj: p.querySelector('[data-proj]'), spark: p.querySelector('[data-spark]'), sparkV: -1, txt: {}
       };
     });
+  }
+  function refreshBtn() {
+    if (M.phase === 'loading' || !(M.probe && M.probe.enabled)) return '';
+    return '<button type="button" class="lim-refresh" data-refresh aria-label="Refresh plan limits now" title="Refresh now">' +
+      '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.3 8A5.3 5.3 0 1 1 11.7 4.2"/><path d="M13.5 2.2v2.6h-2.6"/></svg></button>' +
+      '<span class="lim-sr" role="status" aria-live="polite" data-refresh-status></span>';
+  }
+  function scopedHtml() {
+    var list = scopedList();
+    if (!list.length) return '';
+    return '<div class="lim-scoped" role="group" aria-label="Weekly limits by model"><div class="lim-sc-h">Weekly limits by model</div><div class="lim-sc-list">' + list.map(function (w) {
+      var st = statusOf(w.used);
+      return '<div class="lim-sc" data-sk="' + esc(w.key) + '" data-st="' + st + '"' + (w.active ? ' data-active="1"' : '') + '>' +
+        '<div class="lim-sc-top"><span class="lim-sc-n">' + esc(w.label) + (w.active ? ' <span class="lim-bind" title="The limit Claude Code currently treats as active">binding</span>' : '') + '</span>' +
+        '<span class="lim-sc-v">' + IC[st] + '<b data-scp></b></span></div>' +
+        '<span class="lim-bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + Math.round(w.used) + '" aria-label="' + esc(w.label) + ' weekly limit used"><b style="width:0"></b></span>' +
+        '<div class="lim-sc-r" data-scr></div></div>';
+    }).join('') + '</div></div>';
+  }
+  function extraHtml() {
+    var x = M.extra, cur = x.currency ? ' ' + esc(x.currency) : '';
+    var amt = x.usedCredits != null && x.monthlyLimit != null ? esc(x.usedCredits) + ' of ' + esc(x.monthlyLimit) + cur : x.utilization != null ? Math.round(x.utilization) + '% used' : 'enabled';
+    return '<div class="lim-extra-u"><span class="lim-spend-l">Extra usage <i>\u00b7 monthly</i></span><span class="lim-spend-v">' + amt + '</span></div>';
   }
   function spendHtml() {
     var s = M.spend, st = statusOf(s.used);
@@ -384,7 +447,7 @@
     if (used >= 100) projHtml = '<span class="lim-proj-t" data-p="limit">' + IC.limit + '<span>Limit reached \u2014 usage returns ' + esc(when(w.resetsAt)) + '</span></span>';
     else if (w.hitAt && w.hitAt < w.resetsAt && w.hitAt > n - 60000) projHtml = '<span class="lim-proj-t" data-p="hit">' + IC.trend + '<span>At this pace you\u2019ll hit the limit around <b>' + esc(when(w.hitAt)) + '</b>, before the reset' + burnTxt + '</span></span>';
     else if (proj != null && w.burn != null) projHtml = '<span class="lim-proj-t" data-p="proj">' + IC.trend + '<span>At this pace: <b>~' + Math.round(proj) + '%</b> by reset' + burnTxt + '</span></span>';
-    else projHtml = '<span class="lim-proj-t lim-quiet" data-p="none">' + IC.trend + '<span>Projection appears after a few minutes of activity</span></span>';
+    else projHtml = '<span class="lim-proj-t lim-quiet" data-p="none">' + IC.trend + '<span>Projection appears once there is enough history</span></span>';
     setText(P, 'proj', P.proj, projHtml, true);
   }
 
@@ -412,14 +475,19 @@
       '<div class="lim-spark-ax"><span>' + esc(when(start)) + '</span>' + (pts.length < 2 ? '<span class="mid">History fills in as you work</span>' : '<span class="mid">usage this window</span>') + '<span>' + esc(when(w.resetsAt)) + '</span></div>';
   }
 
+  function everyText() {
+    var ms = M.probe && M.probe.intervalMs ? M.probe.intervalMs : 120000;
+    return ms >= 3600000 ? Math.round(ms / 3600000) + ' h' : Math.round(ms / 60000) + ' min';
+  }
   function metaText() {
-    if (M.phase === 'loading') return '';
-    if (M.phase !== 'ok') return '';
-    var age = M.updatedAt ? now() - M.updatedAt : 0;
-    if (!M.updatedAt) return '';
-    return (M.stale ? '<span class="lim-chip sm" data-st="stale">' + IC.clock + 'Stale</span>' : '<span class="lim-live-dot" aria-hidden="true"></span>') +
-      '<span class="lim-upd"' + (M.stale ? ' title="Plan limits come from Claude Code\u2019s status line, which runs in the terminal app; the VS Code panel hasn’t reported it in testing."' : '') + '>' +
-      (M.stale ? 'Last update ' + ago(age) + ' \u2014 send a message in terminal <code>claude</code> to refresh' : 'Updated ' + ago(age)) + '</span>';
+    if (M.phase !== 'ok' || !M.updatedAt) return '';
+    var age = now() - M.updatedAt, ok = probeOk();
+    var dot = M.stale ? '<span class="lim-chip sm" data-st="stale">' + IC.clock + 'Stale</span>' : '<span class="lim-live-dot" aria-hidden="true"></span>';
+    var txt;
+    if (M.stale && ok) txt = 'Last update ' + ago(age) + ' ' + '\u2014' + ' refreshing' + String.fromCharCode(8230);
+    else if (M.stale) txt = 'Last update ' + ago(age) + ' ' + '\u2014' + (M.probe && M.probe.enabled && M.probe.lastError ? ' auto-refresh failed (' + esc(M.probe.lastError) + '); send a message in terminal <code>claude</code> to refresh' : ' send a message in terminal <code>claude</code> to refresh');
+    else txt = 'Updated ' + ago(age) + (ok ? ' ' + '\u00b7' + ' auto-refresh every ' + everyText() : '');
+    return dot + '<span class="lim-upd">' + txt + '</span>';
   }
 
   function paintPill(host) {
@@ -433,6 +501,18 @@
     });
   }
 
+  function paintScoped(host) {
+    var n = now();
+    M.scoped.forEach(function (w) {
+      var P = host.r.sc && host.r.sc[w.key];
+      if (!P || w.resetsAt <= n) return;
+      var pct = pctText(w.used, w.used) + '%';
+      setText(P, 'p', P.pct, pct);
+      if (P.bar && P.txt.w !== w.used) { P.txt.w = w.used; P.bar.style.width = (w.used > 0 ? Math.max(w.used, 1.5) : 0) + '%'; }
+      setAttr(P.meter, 'aria-valuenow', String(Math.round(w.used)));
+      setText(P, 'r', P.rst, 'resets ' + when(w.resetsAt));
+    });
+  }
   function paintHost(host, tick) {
     if (host.kind === 'pill') {
       var ps = pillSig();
@@ -442,7 +522,7 @@
       setAttr(host.el, 'data-stale', stale ? '1' : '0');
       setAttr(host.el, 'data-worst', M.phase === 'ok' ? worstStatus() : 'idle');
       var lbl = pillLabel();
-      setAttr(host.el, 'aria-label', lbl); setAttr(host.el, 'title', lbl + ' \u2014 ' + TIP);
+      setAttr(host.el, 'aria-label', lbl); setAttr(host.el, 'title', lbl + scopedTip() + '\n' + TIP);
       return;
     }
     var sig = cardSig();
@@ -451,9 +531,14 @@
     setAttr(host.el, 'data-stale', M.phase === 'ok' && M.stale ? '1' : '0');
     if (M.phase === 'ok') {
       WINDOWS.forEach(function (d) { paintPanel(host, d, tick); });
+      paintScoped(host);
       var mt = metaText();
       if (host.r.meta && host.r.metaTxt !== mt) { host.r.metaTxt = mt; host.r.meta.innerHTML = mt; }
     }
+  }
+  function scopedTip() {
+    var l = scopedList();
+    return l.length ? '\nWeekly limits by model: ' + l.map(function (w) { return w.label + ' ' + Math.round(w.used) + '%'; }).join(', ') : '';
   }
   function pillLabel() {
     if (M.phase === 'loading') return 'Plan limits loading';
@@ -464,7 +549,7 @@
     return 'Plan limits: ' + WINDOWS.map(function (d) {
       var w = M.win[d.key];
       return w && w.resetsAt > now() ? d.sub + ' window ' + Math.round(w.used) + ' percent used, ' + ST_LABEL[statusOf(w.used)] : d.sub + ' window not reported';
-    }).join('; ');
+    }).join('; ') + scopedList().map(function (w) { return '; ' + w.label + ' weekly ' + Math.round(w.used) + ' percent'; }).join('');
   }
 
   function paintAll(force) {
@@ -503,6 +588,26 @@
 
   /* ------------------------------------------------------------------ transport */
   var pollT = 0, inflight = false, fails = 0, missing = false;
+  var refreshing = false;
+  function setBusy(on, msg) {
+    refreshing = on;
+    HOSTS.forEach(function (h) {
+      var b = h.el.querySelector && h.el.querySelector('[data-refresh]');
+      if (b) { b.setAttribute('aria-busy', on ? 'true' : 'false'); b.disabled = false; }
+      var st = h.el.querySelector && h.el.querySelector('[data-refresh-status]');
+      if (st && msg != null) st.textContent = msg;
+    });
+  }
+  function doRefresh() {
+    if (refreshing) return;
+    var t0 = Date.now();
+    setBusy(true, 'Refreshing plan limits' + String.fromCharCode(8230));
+    var done = function (msg) { setTimeout(function () { setBusy(false, msg); }, Math.max(0, 600 - (Date.now() - t0))); };
+    fetch('/api/limits?refresh=1', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (p) { ingest(p); done('Plan limits updated'); }, function () { done('Could not refresh plan limits'); });
+  }
   function load() {
     if (inflight) return;
     inflight = true;
@@ -545,6 +650,8 @@
 
   document.addEventListener('click', function (e) {
     var t = e.target;
+    var rf = t.closest && t.closest('[data-refresh]');
+    if (rf) { doRefresh(); return; }
     var cp = t.closest && t.closest('.lim-copy');
     if (cp) {
       var text = cp.getAttribute('data-copy-text') || '', span = cp.querySelector('span');

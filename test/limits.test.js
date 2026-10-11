@@ -17,6 +17,7 @@ const DATA = path.join(TMP, 'data');
 process.env.CLAUDE_CONFIG_DIR = path.join(TMP, 'claude');
 process.env.CCU_DATA_DIR = DATA;
 process.env.CCU_START_DATE = '2026-01-01';
+delete process.env.CCU_LIMITS_PROBE;
 fs.mkdirSync(path.join(TMP, 'claude', 'projects'), { recursive: true });
 const srv = require('../server.js');
 const sl = require('../scripts/statusline.js');
@@ -259,12 +260,14 @@ test('math: projection above 100 is flagged, projectedHitAt is when it crosses 1
   assert.equal(late.willExceed, false);
 });
 
-test('math: burn is null with < 2 points or < 5 minutes of span; never negative; projection floor at 0', () => {
+test('math: burn is null with < 2 points or too short a span (5h: 7.5 min, 7d: 4.2 h); never negative; projection floor at 0', () => {
   const stale = (o) => srv.computeLimits([o], [], NOW);
   assert.equal(stale(five(30, 2 * H)).windows.five_hour.burnPerHour, null);
   const short = [hp('5h', 4, 29, 2 * H), hp('5h', 0, 30, 2 * H)];
   assert.equal(srv.computeLimits([five(30, 2 * H)], short, NOW).windows.five_hour.burnPerHour, null);
-  const ok = [hp('5h', 6, 29, 2 * H), hp('5h', 0, 30, 2 * H)];
+  const tooShort5h = [hp('5h', 6, 29, 2 * H), hp('5h', 0, 30, 2 * H)];
+  assert.equal(srv.computeLimits([five(30, 2 * H)], tooShort5h, NOW).windows.five_hour.burnPerHour, null);
+  const ok = [hp('5h', 9, 29, 2 * H), hp('5h', 0, 30, 2 * H)];
   assert.ok(srv.computeLimits([five(30, 2 * H)], ok, NOW).windows.five_hour.burnPerHour > 0);
   const falling = [hp('5h', 50, 40, 2 * H), hp('5h', 0, 30, 2 * H)];
   const f = srv.computeLimits([five(30, 2 * H)], falling, NOW).windows.five_hour;
@@ -528,4 +531,232 @@ test('end-to-end: piping the sample through `node scripts/statusline.js` (CCU_DA
     assert.equal(g.status, 0);
     assert.equal(g.stdout.trim(), 'Claude');
   }
+});
+
+// ---------------------------------------------------------------- /usage probe (Claude Code's documented usage_report)
+
+const SAMPLE = path.join(__dirname, 'fixtures', 'usage-report.jsonl');
+const FIXTURE = fs.readFileSync(SAMPLE, 'utf8');
+const FAKE = path.join(TMP, 'fake-claude.js');
+const FAKE_COUNT = path.join(TMP, 'fake-count.txt');
+fs.writeFileSync(FAKE, `
+const fs = require('fs');
+fs.appendFileSync(${JSON.stringify(FAKE_COUNT)}, 'x');
+const mode = process.env.FAKE_MODE || 'ok';
+process.stdin.resume();
+process.stdin.on('data', () => {});
+process.stdin.on('end', () => {
+  if (mode === 'hang') return setInterval(() => {}, 1000);
+  if (mode === 'fail') { process.stderr.write('/secret/path'); process.exit(3); }
+  if (mode === 'garbage') { console.log('not json'); return; }
+  const text = fs.readFileSync(${JSON.stringify(SAMPLE)}, 'utf8');
+  if (mode === 'null') { const j = JSON.parse(text); j.usage_report.rate_limits = null; console.log(JSON.stringify(j)); return; }
+  process.stdout.write(text);
+});
+`);
+const fakeRuns = () => { try { return fs.readFileSync(FAKE_COUNT, 'utf8').length; } catch { return 0; } };
+const P = srv._probe;
+function probeReset() {
+  fs.rmSync(path.join(DATA, 'limits'), { recursive: true, force: true });
+  fs.mkdirSync(path.join(DATA, 'limits'), { recursive: true });
+  Object.assign(P, { running: null, lastStartAt: 0, lastAt: 0, lastOkAt: 0, lastOk: false, lastError: null, fails: 0, noLimits: false, prev: null, prevLoaded: false, bin: null, binAt: 0, timeoutMs: 30e3, viewAt: 0 });
+  fs.rmSync(FAKE_COUNT, { force: true });
+  process.env.CCU_CLAUDE_BIN = FAKE;
+  process.env.FAKE_MODE = 'ok';
+  delete process.env.CCU_LIMITS_PROBE;
+}
+
+test('probe: the sample usage_report parses and maps to windows (ISO -> ms, scoped, flags)', () => {
+  const rep = srv.probeParseOutput(FIXTURE);
+  assert.ok(rep && rep.rate_limits && Array.isArray(rep.rate_limits.limits));
+  assert.equal(srv.probeParseOutput('garbage\n{"type":"x"}\n'), null);
+  assert.ok(srv.probeParseOutput(JSON.stringify({ message: { usage_report: { rate_limits: null } } })), 'also found inside message');
+  const now = Date.parse('2026-10-11T04:10:00Z');
+  const snap = srv.probeSnapshot(rep, now);
+  assert.equal(snap.sessionId, 'usage-probe');
+  assert.equal(snap.rate_limits.five_hour.used_percentage, 52);
+  assert.equal(snap.rate_limits.five_hour.resets_at, Date.parse('2026-10-11T07:50:00Z'), 'sub-second jitter rounded to the minute');
+  assert.equal(snap.rate_limits.five_hour.is_active, true);
+  assert.equal(snap.rate_limits.seven_day.resets_at, Date.parse('2026-10-15T11:00:00Z'));
+  assert.equal(snap.scoped.length, 1);
+  assert.equal(snap.scoped[0].label, 'Fable');
+  const p = srv.computeLimits([snap], [], now);
+  assert.equal(p.available, true);
+  assert.equal(p.source, 'usage');
+  assert.equal(p.windows.five_hour.usedPct, 52);
+  assert.equal(p.windows.five_hour.isActive, true);
+  assert.equal(p.windows.five_hour.severity, 'normal');
+  assert.equal(p.windows.seven_day.usedPct, 21);
+  assert.equal(p.windows.scoped.length, 1);
+  const f = p.windows.scoped[0];
+  assert.equal(f.label, 'Fable');
+  assert.equal(f.windowMs, 7 * 24 * H);
+  assert.equal(f.resetsAt, Date.parse('2026-10-15T11:00:00Z'));
+  assert.equal(f.startedAt, f.resetsAt - 7 * 24 * H);
+  assert.equal(f.status, 'ok');
+  assert.ok(!p.extraUsage, 'extra usage is disabled in the sample');
+  const rep2 = JSON.parse(JSON.stringify(rep));
+  rep2.rate_limits.extra_usage = { is_enabled: true, monthly_limit: 50, used_credits: 12.5, utilization: 25, currency: 'USD' };
+  rep2.rate_limits.limits.push({ kind: 'weekly_scoped', group: 'weekly', percent: 80, resets_at: '2026-10-15T11:00:00+00:00', scope: { model: { display_name: 'Fable' }, surface: null }, severity: 'warning', is_active: true });
+  const p2 = srv.computeLimits([srv.probeSnapshot(rep2, now)], [], now);
+  assert.equal(p2.windows.scoped.length, 2);
+  assert.equal(p2.windows.scoped[1].usedPct, 80);
+  assert.equal(p2.windows.scoped[1].status, 'watch');
+  assert.equal(p2.windows.scoped[1].isActive, true);
+  assert.deepEqual(p2.extraUsage, { enabled: true, monthlyLimit: 50, usedCredits: 12.5, utilization: 25, currency: 'USD' });
+});
+
+test('probe: runs end to end through CCU_CLAUDE_BIN (a .js path), stores a snapshot and history, shows up at /api/limits', async () => {
+  probeReset();
+  await srv.probeRun();
+  const pub = srv.probePublic();
+  assert.equal(pub.ok, true);
+  assert.equal(pub.lastError, null);
+  assert.ok(pub.lastOkAt > 0);
+  assert.equal(fakeRuns(), 1);
+  assert.ok(fs.existsSync(path.join(DATA, 'limits', 'usage-probe.json')));
+  assert.deepEqual(readHist(DATA).map((h) => h.w).sort(), ['5h', '7d', '7d:Fable']);
+  const j = (await getJson('/api/limits')).json();
+  assert.equal(j.available, true);
+  assert.equal(j.source, 'usage');
+  assert.equal(j.windows.five_hour.usedPct, 52);
+  assert.equal(j.windows.scoped[0].label, 'Fable');
+  assert.equal(j.probe.enabled, true);
+  assert.equal(j.probe.ok, true);
+  await srv.probeRun();
+  assert.equal(readHist(DATA).length, 3, 'identical numbers append no history');
+  const a = srv.probeRun(); const b = srv.probeRun();
+  assert.equal(a, b, 'never overlaps');
+  await a;
+  process.env.CCU_CLAUDE_BIN = JSON.stringify([process.execPath, FAKE]);
+  P.bin = null;
+  await srv.probeRun();
+  assert.equal(srv.probePublic().ok, true, 'JSON array form');
+});
+
+test('probe: failures are short and path-free; three in a row back the schedule off to 15 min; success resets', async () => {
+  probeReset();
+  process.env.FAKE_MODE = 'fail';
+  for (let i = 0; i < 3; i++) await srv.probeRun();
+  const pub = srv.probePublic();
+  assert.equal(pub.ok, false);
+  assert.equal(pub.lastError, 'claude exited with code 3');
+  assert.equal(P.fails, 3);
+  srv.probeTouch();
+  assert.equal(srv.probeInterval(), 15 * 60e3);
+  process.env.FAKE_MODE = 'garbage';
+  await srv.probeRun();
+  assert.equal(srv.probePublic().lastError, 'no usage report in the output');
+  process.env.FAKE_MODE = 'ok';
+  await srv.probeRun();
+  assert.equal(srv.probePublic().ok, true);
+  assert.equal(P.fails, 0);
+  assert.equal(srv.probeInterval(), 2 * 60e3);
+  process.env.CCU_CLAUDE_BIN = path.join(TMP, 'does-not-exist.exe');
+  P.bin = null;
+  await srv.probeRun();
+  assert.equal(srv.probePublic().ok, false);
+  assert.ok(srv.probePublic().lastError && !/[\\/]/.test(srv.probePublic().lastError));
+});
+
+test('probe: a hanging claude is killed at the timeout', async () => {
+  probeReset();
+  process.env.FAKE_MODE = 'hang';
+  P.timeoutMs = 400;
+  const t0 = Date.now();
+  await srv.probeRun();
+  assert.ok(Date.now() - t0 < 5000);
+  assert.equal(srv.probePublic().lastError, 'timeout');
+  P.timeoutMs = 30e3;
+});
+
+test('probe: rate_limits null (API key / 3P) -> not-subscriber, but only when no other source has data; never overwrites a good report', async () => {
+  probeReset();
+  process.env.FAKE_MODE = 'null';
+  await srv.probeRun();
+  let j = (await getJson('/api/limits')).json();
+  assert.equal(j.available, false);
+  assert.equal(j.reason, 'not-subscriber');
+  assert.equal(j.probe.ok, true);
+  assert.equal(j.probe.noLimits, true);
+  fs.writeFileSync(path.join(DATA, 'limits', 'sess-x.json'), JSON.stringify({ receivedAt: Date.now(), sessionId: 'sess-x', rate_limits: { five_hour: { used_percentage: 33, resets_at: Math.round((Date.now() + 2 * H) / 1000) } } }));
+  j = (await getJson('/api/limits')).json();
+  assert.equal(j.available, true);
+  assert.equal(j.source, 'statusline');
+  assert.equal(j.windows.five_hour.usedPct, 33);
+  probeReset();
+  process.env.FAKE_MODE = 'ok';
+  await srv.probeRun();
+  process.env.FAKE_MODE = 'null';
+  await srv.probeRun();
+  j = (await getJson('/api/limits')).json();
+  assert.equal(j.available, true);
+  assert.equal(j.windows.five_hour.usedPct, 52);
+});
+
+test('probe: /api/limits?refresh=1 starts a probe unless one began < 20 s ago, and answers after it finished', async () => {
+  probeReset();
+  const r1 = await getJson('/api/limits?refresh=1');
+  assert.equal(r1.status, 200);
+  assert.equal(r1.json().probe.ok, true, 'answered after the probe finished');
+  assert.equal(r1.json().windows.five_hour.usedPct, 52);
+  assert.equal(fakeRuns(), 1);
+  await getJson('/api/limits?refresh=1');
+  await getJson('/api/limits?refresh=1');
+  assert.equal(fakeRuns(), 1, 'throttled');
+  P.lastStartAt = Date.now() - 21e3;
+  await getJson('/api/limits?refresh=1');
+  assert.equal(fakeRuns(), 2);
+  probeReset();
+  process.env.FAKE_MODE = 'hang';
+  P.timeoutMs = 600;
+  const r = await getJson('/api/limits?refresh=1');
+  assert.equal(r.status, 200);
+  assert.equal(r.json().probe.lastError, 'timeout');
+  P.timeoutMs = 30e3;
+});
+
+test('probe: CCU_LIMITS_PROBE=0 disables it (no spawn, refresh is a plain read, no timer)', async () => {
+  probeReset();
+  process.env.CCU_LIMITS_PROBE = '0';
+  srv.probeStart();
+  assert.equal(P.timer, null);
+  const r = await getJson('/api/limits?refresh=1');
+  assert.equal(r.status, 200);
+  assert.equal(fakeRuns(), 0);
+  const pr = r.json().probe;
+  assert.equal(pr.enabled, false);
+  assert.equal(pr.ok, false);
+  assert.equal(pr.nextAt, null);
+  delete process.env.CCU_LIMITS_PROBE;
+});
+
+test('probe: schedule - first run ~3 s after start, 2 min while viewed (SSE or recent /api), 15 min otherwise; stops cleanly', async () => {
+  probeReset();
+  assert.equal(srv.probeInterval(Date.now() + 11 * 60e3), 15 * 60e3);
+  srv.probeTouch();
+  assert.equal(srv.probeInterval(), 2 * 60e3);
+  const before = Date.now();
+  srv.probeStart();
+  assert.ok(P.timer);
+  assert.ok(P.startAt >= before + 2500 && P.startAt <= before + 4500);
+  assert.equal(srv.probePublic().nextAt, P.startAt);
+  srv.probeStop();
+  assert.equal(P.timer, null);
+  const c = sse();
+  await c.waitFor((m) => m.event === 'limits');
+  assert.equal(srv.probeInterval(Date.now() + 60 * 60e3), 2 * 60e3, 'an SSE subscriber counts as viewing');
+  c.close();
+});
+
+test('probe: a successful probe pushes an SSE limits event with the scoped windows', async () => {
+  probeReset();
+  const c = sse();
+  await c.waitFor((m) => m.event === 'limits');
+  await srv.probeRun();
+  const m = await c.waitFor((x) => x.event === 'limits' && x.data.windows && x.data.windows.scoped);
+  assert.equal(m.data.windows.scoped[0].label, 'Fable');
+  assert.equal(m.data.probe.ok, true);
+  c.close();
+  probeReset();
 });
