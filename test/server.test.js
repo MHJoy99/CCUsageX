@@ -360,7 +360,7 @@ test('API: status, options, summary totals add up', async () => {
   assert.equal(st.requests, 11);
   assert.equal(st.prompts, 3);
   assert.equal(typeof st.tz, 'string');
-  assert.equal(st.tzOffsetMin, -new Date().getTimezoneOffset());
+  assert.equal(st.tzOffsetMin, (0 - new Date().getTimezoneOffset()) || 0); // JSON turns -0 into 0
   const opt = await api('/api/options');
   assert.deepEqual(opt.models, ['claude-haiku-5-5', 'claude-opus-5-5', 'claude-sonnet-5-5']);
   assert.equal(opt.projects.length, 3);

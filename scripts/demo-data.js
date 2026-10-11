@@ -48,7 +48,7 @@ const PROMPTS = [
   'Bump dependencies and fix breaking changes', 'Add an index for the time-range query', 'Write unit tests for the parser',
   'Clean up the logging', 'Draft release notes for v1.4', 'Split the monolith route file', 'Add rate limiting to login',
   'Convert the cron job to a queue worker', 'Find where the memory leak comes from', 'Make the chart tooltips keyboard accessible',
-  'Port the bash script to Node', 'Set up the GitHub Actions matrix', 'Document the HTTP API',
+  'Port the bash script to Node', 'Add a local test runner script', 'Document the HTTP API',
 ];
 const TOOLS = [['Bash', 1820], ['Read', 1310], ['Edit', 760], ['Grep', 410], ['Write', 220], ['Glob', 120], ['WebSearch', 64], ['TodoWrite', 40]];
 const ANSWERS = [

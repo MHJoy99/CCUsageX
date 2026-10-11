@@ -125,14 +125,14 @@
   var DEF = {
     s: '', range: 'all', gran: 'auto', model: '', project: '', session: '', kind: '', q: '',
     rsort: 'time', rdir: 'desc', rsize: 20, rpage: 1, psort: 'time', pdir: 'desc', psize: 20, ppage: 1,
-    ssort: 'last', sdir: 'desc', ssize: 20, spage: 1, metric: 'tokens'
+    ssort: 'last', sdir: 'desc', ssize: 20, spage: 1, metric: 'tokens', view: ''
   };
   var S = {};
   var ENUMS = {
     s: [''].concat(SECTIONS), range: ['today', '24h', '7d', '30d', 'all'], gran: ['auto', 'hour', 'day'],
     kind: ['', 'main', 'subagent'], rsort: ['time', 'cost', 'tokens', 'latency'], psort: ['time', 'cost', 'tokens'],
     rdir: ['asc', 'desc'], pdir: ['asc', 'desc'], sdir: ['asc', 'desc'], metric: ['requests', 'tokens', 'cost'],
-    ssort: ['title', 'project', 'first', 'last', 'prompts', 'requests', 'tokens', 'cost']
+    ssort: ['title', 'project', 'first', 'last', 'prompts', 'requests', 'tokens', 'cost'], view: ['', 'live']
   };
   var SIZES = [20, 50, 100];
   function readHash() {
@@ -341,6 +341,7 @@
   var secEls = {}, spyQueued = false, spyTimer = null, scrolling = false;
   function spy() {
     spyQueued = false;
+    if (S.view === 'live') return;
     var y = window.scrollY, hh = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hh')) || 60;
     $('#topbar').classList.toggle('scrolled', y > 6);
     var line = hh + 120, cur = 'overview';
@@ -358,12 +359,38 @@
     spyTimer = setTimeout(function () { var s = cur === 'overview' ? '' : cur; if (S.s !== s && !scrolling) { S.s = s; writeHash(); } }, 250);
   }
   function goSection(id, instant) {
+    if (S.view === 'live') setView('', true);
     var el = document.getElementById(id);
     if (!el) return;
     scrolling = true;
     el.scrollIntoView({ behavior: instant || REDUCED ? 'auto' : 'smooth', block: 'start' });
     S.s = id === 'overview' ? '' : id; writeHash();
     setTimeout(function () { scrolling = false; spy(); }, instant ? 50 : 800);
+  }
+
+  /* ================================================================== views (Dashboard | Live) */
+  var shownView = null;
+  function applyView() {
+    var v = S.view === 'live' ? 'live' : '';
+    if (v === shownView) return;
+    var prev = shownView;
+    shownView = v;
+    document.body.setAttribute('data-view', v || 'dashboard');
+    $('#live-view').hidden = v !== 'live';
+    $('#dash').hidden = v === 'live';
+    $$('#seg-view button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === v)); });
+    document.title = v === 'live' ? 'Live · CCUsageX' : (document.title.replace(/^Live · /, ''));
+    if (window.CCULive && window.CCULive.setActive) window.CCULive.setActive(v === 'live');
+    if (prev !== null) {
+      window.scrollTo(0, 0);
+      if (v !== 'live') { refresh(true); spy(); }
+    }
+  }
+  function setView(v, keepScroll) {
+    S.view = v === 'live' ? 'live' : '';
+    writeHash();
+    applyView();
+    if (!keepScroll) window.scrollTo(0, 0);
   }
 
   /* ================================================================== partial-usage caveat */
@@ -1332,7 +1359,9 @@
     else if (!liveInfo.known) { state = 'idle'; txt = 'Connecting…'; tag = 'LIVE'; t = 'Connecting…'; d = 'Auto-refreshing every 10 s'; }
     else if (liveInfo.active) { state = 'active'; txt = 'Live · active now'; tag = 'LIVE'; t = 'Claude Code is active right now'; d = 'Last request ' + ago(Date.now() - liveInfo.lastTs) + ' · ' + updated; }
     else { state = 'idle'; txt = liveInfo.lastTs ? 'Idle · last request ' + ago(Date.now() - liveInfo.lastTs) : 'Idle · no requests yet'; tag = 'IDLE'; t = liveInfo.lastTs ? 'Last request ' + ago(Date.now() - liveInfo.lastTs) : 'No requests yet'; d = 'Auto-refreshing every 10 s · ' + updated; }
+    if (S.view === 'live' && window.CCULive && window.CCULive.status) { var ls = window.CCULive.status(); state = ls.state; txt = ls.text; }
     el.setAttribute('data-state', state); hero.setAttribute('data-state', state);
+    if (S.view !== 'live') $('#view-live-btn').setAttribute('data-state', state === 'error' ? 'error' : state);
     if (st.textContent !== txt) st.textContent = txt;
     up.textContent = '· ' + updated;
     $('#hl-tag-t').textContent = tag; $('#hl-t').textContent = t; $('#hl-d').textContent = d;
@@ -1409,6 +1438,7 @@
   /* ================================================================== wiring */
   function init() {
     readHash();
+    applyView();
     buildKpis();
     buildCards();
     wireCards();
@@ -1441,7 +1471,11 @@
       document.documentElement.setAttribute('data-theme', t);
       lsSet('ccu.theme', t);
     });
-    $('#brand').addEventListener('click', function (e) { e.preventDefault(); goSection('overview'); });
+    $('#brand').addEventListener('click', function (e) { e.preventDefault(); if (S.view === 'live') setView(''); goSection('overview'); });
+    $('#seg-view').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-view]');
+      if (b) setView(b.getAttribute('data-view'));
+    });
     $$('#index a').forEach(function (a) { a.addEventListener('click', function (e) { e.preventDefault(); goSection(a.getAttribute('data-sec')); }); });
     $$('[data-copy]').forEach(function (b) { b.addEventListener('click', function () { copyLink(b.getAttribute('data-copy')); }); });
 
@@ -1467,12 +1501,14 @@
       }
     });
     window.addEventListener('hashchange', function () {
-      var before = JSON.stringify(S);
+      var before = JSON.stringify(S), prevView = S.view;
       readHash();
-      if (JSON.stringify(S) === before) return;
+      if (S.view !== prevView) applyView();
+      var so = JSON.parse(before); so.view = S.view;
+      if (JSON.stringify(S) === JSON.stringify(so)) return;
       syncUi(); cache = {}; paintSig = {};
       refresh(false);
-      if (S.s) goSection(S.s, true);
+      if (S.s && S.view !== 'live') goSection(S.s, true);
     });
     window.addEventListener('scroll', function () { if (!spyQueued) { spyQueued = true; requestAnimationFrame(spy); } }, { passive: true });
     window.addEventListener('resize', function () { if (!spyQueued) { spyQueued = true; requestAnimationFrame(spy); } });
@@ -1485,10 +1521,10 @@
     syncUi();
     refresh(false).then(function () {
       observeReveal();
-      if (S.s) setTimeout(function () { goSection(S.s, true); }, 80);
+      if (S.s && S.view !== 'live') setTimeout(function () { goSection(S.s, true); }, 80);
       spy();
     });
-    setInterval(function () { if (!document.hidden) refresh(true); }, 10000);
+    setInterval(function () { if (document.hidden) return; if (S.view === 'live') pollLive(); else refresh(true); }, 10000);
     setInterval(updateLive, 1000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden && Date.now() - lastOk > 9000) refresh(true); });
   }

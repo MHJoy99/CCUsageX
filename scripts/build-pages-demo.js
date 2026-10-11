@@ -33,7 +33,7 @@ fs.mkdirSync(OUT, { recursive: true });
 fs.writeFileSync(path.join(OUT, 'demo-store.json'), JSON.stringify({ builtAt, store }));
 fs.copyFileSync(path.join(ROOT, 'server.js'), path.join(OUT, 'server.js'));
 fs.copyFileSync(path.join(ROOT, 'config.json'), path.join(OUT, 'config.json'));
-for (const f of ['app.js', 'charts.js', 'styles.css']) fs.copyFileSync(path.join(ROOT, 'public', f), path.join(OUT, f));
+for (const f of ['app.js', 'charts.js', 'styles.css', 'live.js', 'live.css']) fs.copyFileSync(path.join(ROOT, 'public', f), path.join(OUT, f));
 fs.copyFileSync(path.join(__dirname, 'demo-api.js'), path.join(OUT, 'api.js'));
 
 let html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
@@ -50,6 +50,7 @@ const banner = `
 html = html
   .replace(/<title>[^<]*<\/title>/, '<title>CCUsageX live demo — Claude Code usage dashboard</title>\n<meta name="robots" content="index,follow">\n<link rel="canonical" href="https://mhjoy99.github.io/CCUsageX/demo/">\n<meta name="description" content="Interactive demo of CCUsageX, the local Claude Code usage dashboard: prompts, tokens, cache hits and API-equivalent cost, on fictional data.">')
   .replace(/<body([^>]*)>/, (m) => m + banner)
+  .replace('</body>', `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "a2f7f3d589ae4c8688a646d54918b0e7"}'></script>\n</body>`)
   .replace('<script src="charts.js"></script>', '<script src="api.js"></script>\n<script src="charts.js"></script>');
 if (!html.includes('api.js')) throw new Error('could not inject api.js into index.html');
 fs.writeFileSync(path.join(OUT, 'index.html'), html);

@@ -59,7 +59,10 @@ Nothing is uploaded anywhere, and it needs nothing but Node.js 18+.
 - **Models, effort, speed.** Output tokens per second, response time (typical and slowest 5%), effort levels and
   Claude Code versions.
 - **Tools, sessions, projects.** Which tools ran how often, per-session and per-project breakdowns.
-- **Live.** Updates every few seconds while you work, with a live indicator.
+- **Live view, in real time.** A mission-control tab that streams what Claude Code is doing as it happens:
+  current status with a ticking timer, the main agent and its subagents, tool calls as live swimlanes, a
+  scrolling activity chart, context-window gauge, rolling cost and token counters, and an event feed.
+  Events reach the browser a few milliseconds after Claude Code writes them (file watcher + Server-Sent Events).
 - **Keeps your history.** Claude Code deletes old transcripts after 30 days by default; CCUsageX keeps its own copy.
 - **Filters and export.** Time range, model, project, session, main vs subagent, full-text search, CSV export.
 - **Honest numbers.** Independently verified against a separate re-implementation and against ccusage token counts;
@@ -104,7 +107,9 @@ Double-click **`Open-CCUsageX.cmd`**. It starts the server hidden and opens the 
 <br><br>
 <img src="docs/screenshots/dashboard-dark.png" alt="CCUsageX dashboard, dark theme" width="49%">
 <img src="docs/screenshots/prompt-drawer.png" alt="Prompt detail drawer: the full prompt text and every request it triggered, with token and cost breakdown" width="49%">
-<br><sub>All screenshots use fictional demo data.</sub>
+<br><br>
+<img src="docs/screenshots/live.png" alt="CCUsageX Live view: real-time status, agent tree with subagents, tool-call swimlanes, streaming activity chart, context gauge and event feed" width="100%">
+<br><sub>All screenshots use fictional demo data. Try the Live tab in the <a href="https://mhjoy99.github.io/CCUsageX/demo/#view=live">live demo</a>.</sub>
 </div>
 
 ## How it works

@@ -64,6 +64,7 @@ function resetState() {
   dirty = false; lastSaveAt = 0; dataVersion++; lastActivityTs = 0; lastWriteTs = 0; lineErrors = 0;
   lastScanAt = null; lastScanMs = 0; lastError = null;
   memo.clear();
+  liveReset();
 }
 
 // ---------------------------------------------------------------- store (compact on disk)
@@ -280,6 +281,7 @@ function handleLine(line, fstate, file) {
     if (o.type === 'custom-title') s.customTitle = String(o.customTitle).slice(0, 200);
     else s.title = String(o.aiTitle).slice(0, 200);
     dirty = true;
+    liveTitleSeen(o.sessionId);
     return;
   }
 
@@ -315,6 +317,10 @@ function handleLine(line, fstate, file) {
     }
   }
 
+  const lv = o.sessionId && known && (o.type === 'user' || o.type === 'assistant') && ts >= liveNow - LIVE_KEEP_MS
+    ? liveCtx(o, ts, project, side, file, fstate, pid) : null; // null = too old to be live
+  if (lv && o.type === 'user') liveUser(o, c, kind, lv, file);
+
   if (queued && pid && store.prompts[pid]) { // a human message typed while the turn was running
     const p = store.prompts[pid];
     const text = cleanPrompt(textOf(o.attachment.prompt).text).slice(0, 500);
@@ -340,6 +346,7 @@ function handleLine(line, fstate, file) {
   if (o.type !== 'assistant' || !o.message || !o.message.usage) return;
   const msg = o.message;
   if (!msg.model || msg.model === '<synthetic>') return;
+  if (lv) { lv.model = msg.model; liveAssistant(o, msg, lv, file); }
   if (!known || ts < START_MS) return;
 
   if (pid && !store.prompts[pid] && sess && sess.pre && sess.pre.id === pid) { store.prompts[pid] = sess.pre; dataVersion++; }
@@ -397,6 +404,7 @@ function handleLine(line, fstate, file) {
     }
   }
   finalize(r);
+  if (lv) livePend(r, lv, file);
 
   const s = sessionOf(o.sessionId);
   s.project = s.project || r.project;
@@ -498,7 +506,7 @@ function loadAgentMeta(file, fstate) {
   if (fstate.agent || !/[\\/]subagents[\\/]/.test(file)) return;
   try {
     const m = JSON.parse(fs.readFileSync(file.replace(/\.jsonl$/, '.meta.json'), 'utf8'));
-    fstate.agent = { type: m.agentType || null, desc: m.description ? String(m.description).slice(0, 200) : null };
+    fstate.agent = { type: m.agentType || null, desc: m.description ? String(m.description).slice(0, 200) : null, toolUseId: m.toolUseId || null };
   } catch { /* meta may not exist yet */ }
 }
 
@@ -512,12 +520,14 @@ function feed(chunk, fstate, file) {
 function scanFile(file) {
   let st;
   try { st = fs.statSync(file); } catch { return; }
+  liveNow = Date.now();
   let fstate = store.files[file];
   if (!fstate) {
     if (st.mtimeMs < START_MS) return; // nothing in it can be on/after the start date
     fstate = store.files[file] = newFstate();
   }
   if (st.mtimeMs > lastWriteTs) lastWriteTs = st.mtimeMs;
+  if (liveNow - st.mtimeMs < LIVE_KEEP_MS) LV.hot.set(file, st.mtimeMs);
   let fd;
   try { fd = fs.openSync(file, 'r'); } catch { return; }
   try {
@@ -557,6 +567,7 @@ function scanFile(file) {
     dirty = true;
   } finally {
     fs.closeSync(fd);
+    liveFlush(file, liveNow - st.mtimeMs < LIVE_EMIT_MS);
   }
 }
 
@@ -924,6 +935,531 @@ function exportCsv(q) {
   return lines.join('\r\n');
 }
 
+// ---------------------------------------------------------------- live (real-time view)
+// Events are extracted by handleLine while it parses (no second parser), folded into per-session state, kept in a
+// 500-event ring buffer and pushed to /api/stream subscribers (Server-Sent Events). Everything here is bounded.
+
+const LIVE_EMIT_MS = 10 * 60e3;   // only records this fresh produce events (no history floods)
+const LIVE_KEEP_MS = 30 * 60e3;   // sessions stay in the live map this long (older records are ignored by it)
+const LIVE_IDLE_MS = 10 * 60e3;   // no events for this long -> phase 'idle'
+const LIVE_PARTIAL_MS = 4000;     // a request with no stop_reason is finalised as partial after this much quiet
+const LIVE_PING_MS = 15000;
+const LIVE_STATE_MIN_MS = 1000;   // `state` events at most this often
+const LIVE_RING = 500;
+const LIVE_RECENT = 40;
+const LIVE_AGENTS_MAX = 24;
+const LIVE_CTX_LIMIT = 1000000;
+const SSE_BACKLOG_MAX = 4 << 20;  // drop a subscriber that does not read
+
+let liveNow = Date.now();
+const seqSeed = Math.floor(Date.now() / 1000) * 1000; // ids stay monotonic across restarts, so a stale Last-Event-ID never resumes
+const LV = {
+  seq: seqSeed, evicted: seqSeed, ring: [], sessions: new Map(), tools: new Map(), emittedKeys: new Set(), emittedReqs: new Set(),
+  pend: new Map(), titles: new Set(), hot: new Map(), subs: new Set(), servers: new Set(),
+  watcher: null, watchIno: null, watchTry: 0, polling: false, pollTimer: null, lastWalk: 0, lastDirCheck: 0, rootCheck: 0,
+  fileTimers: new Map(), tick: null, lastStateAt: 0, lastStateStr: '', lastPing: 0, tidyTimer: null, stateDirty: false, totals: null,
+};
+
+function liveReset() {
+  LV.ring = []; LV.evicted = LV.seq; LV.sessions.clear(); LV.tools.clear(); LV.emittedKeys.clear(); LV.emittedReqs.clear();
+  LV.pend.clear(); LV.titles.clear(); LV.hot.clear(); LV.stateDirty = true; LV.totals = null;
+}
+
+function remember(set, k, max) {
+  set.add(k);
+  if (set.size > max) set.delete(set.values().next().value);
+}
+
+function clip(s, n) {
+  s = String(s == null ? '' : s).trim();
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
+
+function toolSummary(name, input) {
+  if (!input || typeof input !== 'object') return '';
+  let v;
+  switch (name) {
+    case 'Bash': v = input.command || input.description; break;
+    case 'Read': case 'Edit': case 'Write': case 'MultiEdit': case 'NotebookEdit': v = input.file_path || input.notebook_path; break;
+    case 'Grep': case 'Glob': v = input.pattern; break;
+    case 'WebSearch': v = input.query; break;
+    case 'WebFetch': v = input.url; break;
+    case 'Agent': case 'Task': v = input.description || input.prompt; break;
+    default:
+  }
+  if (typeof v !== 'string' || !v) {
+    v = '';
+    for (const x of Object.values(input)) if (typeof x === 'string' && x) { v = x; break; }
+  }
+  return clip(v.replace(/\s+/g, ' '), 160);
+}
+
+function liveCtx(o, ts, project, side, file, fstate, pid) {
+  const agent = side ? fstate.agent : null;
+  const agentId = side ? (o.agentId || (/[\\/]subagents[\\/]/.test(file) ? path.basename(file, '.jsonl').replace(/^agent-/, '') : null)) : null;
+  return {
+    ts, sessionId: o.sessionId, promptId: pid || null, agentId, agentType: (agent && agent.type) || null, sidechain: side,
+    model: null, project, entrypoint: o.entrypoint || null, agentMeta: agent, silent: ts < liveNow - LIVE_EMIT_MS,
+  };
+}
+
+function newAgent(agentId, type, desc, ts) {
+  return {
+    agentId: agentId || null, agentType: type || null, desc: desc || null, model: null, phase: agentId ? 'generating' : 'idle', phaseSince: ts,
+    currentTool: null, open: new Map(), requests: 0, cost: 0, lastTs: ts,
+  };
+}
+
+function liveSession(c) {
+  let s = LV.sessions.get(c.sessionId);
+  if (!s) {
+    s = {
+      sessionId: c.sessionId, project: c.project || null, model: null, entrypoint: c.entrypoint || null, startedTs: c.ts, lastTs: c.ts,
+      promptText: '', promptTs: null, ctxTokens: 0, agents: new Map(), turn: { requests: 0, cost: 0, tokens: 0, output: 0, startedTs: c.ts },
+      recent: [], lastTitle: undefined,
+    };
+    s.agents.set('', newAgent(null, null, null, c.ts));
+    LV.sessions.set(c.sessionId, s);
+  }
+  if (!s.entrypoint && c.entrypoint) s.entrypoint = c.entrypoint;
+  if (!s.project && c.project) s.project = c.project;
+  return s;
+}
+
+function setPhase(a, phase, ts) {
+  if (a.phase !== phase) { a.phase = phase; a.phaseSince = ts; }
+}
+
+function applyEvent(s, ev) {
+  const key = ev.agentId || '';
+  let a = s.agents.get(key);
+  if (!a) {
+    a = newAgent(ev.agentId, ev.agentType, null, ev.ts);
+    s.agents.set(key, a);
+    if (s.agents.size > LIVE_AGENTS_MAX) { // drop the oldest finished subagent
+      for (const [k, x] of s.agents) if (k && x.phase === 'done') { s.agents.delete(k); break; }
+    }
+  }
+  if (ev.ts > s.lastTs) s.lastTs = ev.ts;
+  if (ev.ts > a.lastTs) a.lastTs = ev.ts;
+  if (ev.agentType && !a.agentType) a.agentType = ev.agentType;
+  if (ev.model) { a.model = ev.model; if (!key || !s.model) s.model = ev.model; }
+  switch (ev.kind) {
+    case 'prompt':
+      setPhase(a, 'generating', ev.ts); a.currentTool = null; a.open.clear();
+      if (!ev.sidechain) {
+        s.promptText = ev.text.slice(0, 200); s.promptTs = ev.ts;
+        if (!ev.origin || ev.origin === 'human') s.turn = { requests: 0, cost: 0, tokens: 0, output: 0, startedTs: ev.ts };
+      }
+      break;
+    case 'text': case 'thinking':
+      setPhase(a, 'generating', ev.ts); a.currentTool = null;
+      break;
+    case 'tool_use':
+      a.open.set(ev.toolUseId, { tool: ev.tool, summary: ev.summary, since: ev.ts });
+      a.currentTool = { tool: ev.tool, summary: ev.summary, since: ev.ts };
+      setPhase(a, 'tool', ev.ts);
+      break;
+    case 'tool_result':
+      a.open.delete(ev.toolUseId);
+      if (a.open.size) { a.currentTool = { ...[...a.open.values()].pop() }; setPhase(a, 'tool', ev.ts); } else {
+        a.currentTool = null; setPhase(a, 'generating', ev.ts);
+      }
+      break;
+    case 'request':
+      a.requests++; a.cost += ev.cost || 0;
+      s.turn.requests++; s.turn.cost += ev.cost || 0; s.turn.tokens += ev.input + ev.output + ev.cacheRead + ev.cacheWrite; s.turn.output += ev.output;
+      if (!key) s.ctxTokens = ev.input + ev.cacheRead + ev.cacheWrite;
+      break;
+    case 'turn_end':
+      setPhase(a, 'waiting_user', ev.ts); a.currentTool = null; a.open.clear();
+      break;
+    case 'subagent_start':
+      if (ev.desc) a.desc = ev.desc;
+      break;
+    case 'subagent_end':
+      setPhase(a, 'done', ev.ts); a.currentTool = null; a.open.clear(); a.endedTs = ev.ts;
+      break;
+    default:
+  }
+}
+
+function liveEmit(kind, c, fields) {
+  const s = liveSession(c);
+  const ag = s.agents.get(c.agentId || '');
+  const ev = {
+    id: ++LV.seq, ts: c.ts, kind, sessionId: c.sessionId, promptId: c.promptId || null, agentId: c.agentId || null,
+    agentType: c.agentType || (ag && ag.agentType) || null, sidechain: !!c.sidechain, model: c.model || (ag && ag.model) || s.model || null,
+    project: c.project || s.project || null, ...fields,
+  };
+  applyEvent(s, ev);
+  s.recent.push(ev);
+  if (s.recent.length > LIVE_RECENT) s.recent.shift();
+  LV.stateDirty = true;
+  if (!c.silent) {
+    LV.ring.push(ev);
+    if (LV.ring.length > LIVE_RING) LV.evicted = LV.ring.shift().id;
+    if (LV.subs.size) sseBroadcast(`id: ${ev.id}\nevent: ev\ndata: ${JSON.stringify(ev)}\n\n`);
+  }
+  return ev;
+}
+
+// first record of a subagent transcript
+function liveAgentStart(c) {
+  if (!c.sidechain || !c.agentId) return;
+  const s = liveSession(c);
+  const a = s.agents.get(c.agentId);
+  const meta = c.agentMeta;
+  if (a) {
+    if (meta) { if (!a.agentType && meta.type) a.agentType = meta.type; if (!a.desc && meta.desc) a.desc = meta.desc; }
+    return;
+  }
+  liveEmit('subagent_start', c, { agentId: c.agentId, agentType: c.agentType, desc: (meta && meta.desc) || null, toolUseId: (meta && meta.toolUseId) || null });
+}
+
+function liveUser(o, c, kind, lv, file) {
+  liveFinalizeOthers(file, null); // any user record means the previous API message is over
+  liveAgentStart(lv);
+  const content = o.message && o.message.content;
+  if (Array.isArray(content)) {
+    for (const b of content) {
+      if (!b || b.type !== 'tool_result' || !b.tool_use_id) continue;
+      const dk = `r:${b.tool_use_id}`;
+      if (LV.emittedKeys.has(dk)) continue;
+      remember(LV.emittedKeys, dk, 6000);
+      const t = LV.tools.get(b.tool_use_id);
+      LV.tools.delete(b.tool_use_id);
+      liveEmit('tool_result', lv, { toolUseId: b.tool_use_id, tool: t ? t.tool : null, isError: !!b.is_error, durationMs: t ? Math.max(0, lv.ts - t.ts) : null });
+    }
+  }
+  if (lv.sidechain) return;
+  const dk = `u:${o.uuid || ''}`;
+  if (kind) {
+    if (o.uuid && LV.emittedKeys.has(dk)) return;
+    remember(LV.emittedKeys, dk, 6000);
+    const text = clip(cleanPrompt(c.text), 300);
+    liveEmit('prompt', { ...lv, promptId: o.promptId || o.uuid || lv.promptId }, { text: kind === 'human' ? text : clip(`[${kind}] ${text}`, 300), origin: kind });
+  } else if (INTERRUPT.test(c.text) && !LV.emittedKeys.has(dk)) {
+    remember(LV.emittedKeys, dk, 6000);
+    liveEmit('turn_end', lv, { stopReason: null, reason: 'interrupted' });
+  }
+}
+
+function liveAssistant(o, msg, lv, file) {
+  const mkey = `${msg.id || o.uuid}:${o.requestId || ''}`;
+  liveFinalizeOthers(file, mkey);
+  liveAgentStart(lv);
+  const blocks = Array.isArray(msg.content) ? msg.content : [];
+  blocks.forEach((b, i) => {
+    if (!b || typeof b !== 'object') return;
+    const dk = `a:${o.uuid || mkey + ':' + o.apiBlockIndex}:${i}`;
+    if (LV.emittedKeys.has(dk)) return;
+    if (b.type === 'text') {
+      const text = clip(b.text, 300);
+      if (!text) return;
+      remember(LV.emittedKeys, dk, 6000);
+      liveEmit('text', lv, { text });
+    } else if (b.type === 'thinking' || b.type === 'redacted_thinking') {
+      remember(LV.emittedKeys, dk, 6000);
+      liveEmit('thinking', lv, {});
+    } else if (b.type === 'tool_use' && b.name) {
+      remember(LV.emittedKeys, dk, 6000);
+      const id = b.id || dk;
+      LV.tools.set(id, { tool: b.name, ts: lv.ts });
+      if (LV.tools.size > 4000) LV.tools.delete(LV.tools.keys().next().value);
+      liveEmit('tool_use', lv, { tool: b.name, toolUseId: id, summary: toolSummary(b.name, b.input) });
+    }
+  });
+}
+
+// ---- requests: one `request` event per API message, when its stop_reason line arrives (batch end) or as a partial
+
+function livePend(r, lv, file) {
+  if (LV.emittedReqs.has(r.key)) return;
+  const p = LV.pend.get(r.key);
+  if (p) { p.seen = Date.now(); p.c = { ...lv, model: r.model }; return; }
+  LV.pend.set(r.key, { r, c: { ...lv, model: r.model }, file, seen: Date.now() });
+}
+
+const TURN_END = new Set(['end_turn', 'refusal']);
+
+function liveEmitRequest(p, how) {
+  if (!LV.pend.delete(p.r.key)) return;
+  remember(LV.emittedReqs, p.r.key, 4000);
+  const r = p.r;
+  const c = { ...p.c, ts: r.endTs };
+  liveEmit('request', c, {
+    key: r.key, input: r.input, output: r.output, cacheRead: r.cacheRead, cacheWrite: r.cacheWrite5m + r.cacheWrite1h, thinking: r.thinking,
+    cost: r.cost ? r.cost.total : null, latencyMs: r.latencyMs, stopReason: r.stopReason, usagePartial: !!r.usagePartial,
+  });
+  const ended = TURN_END.has(r.stopReason) || (!r.stopReason && how === 'timer' && !r.tools.length && !!r.response);
+  if (!ended) return;
+  if (c.sidechain) {
+    if (c.agentId) liveEmit('subagent_end', c, { agentId: c.agentId });
+  } else liveEmit('turn_end', c, { stopReason: r.stopReason || null, ...(r.stopReason ? {} : { inferred: true }) });
+}
+
+function liveFinalizeOthers(file, exceptKey) {
+  for (const p of [...LV.pend.values()]) if (p.file === file && p.r.key !== exceptKey) liveEmitRequest(p, 'next');
+}
+
+function liveTitleSeen(sessionId) { LV.titles.add(sessionId); }
+
+// end of one scanFile call: emit the requests that are complete, then the title changes
+function liveFlush(file, fileFresh) {
+  for (const p of [...LV.pend.values()]) if (p.file === file && p.r.stopReason) liveEmitRequest(p, 'batch');
+  if (!LV.titles.size) return;
+  for (const id of LV.titles) {
+    const s = LV.sessions.get(id);
+    if (!s) continue;
+    const title = sessionTitle(id);
+    if (title && title !== s.lastTitle) {
+      s.lastTitle = title;
+      if (fileFresh) liveEmit('title', { ts: Date.now(), sessionId: id, promptId: null, agentId: null, sidechain: false, project: s.project }, { title });
+    }
+  }
+  LV.titles.clear();
+}
+
+// ---- state payload
+
+function liveTotals(now) {
+  const k = `${dataVersion}|${Math.floor(now / 1000)}`;
+  if (LV.totals && LV.totals.k === k) return LV.totals;
+  const list = sortedList();
+  const today = { requests: 0, cost: 0, tokens: 0, output: 0 };
+  const win = { requests: 0, cost: 0, tokens: 0 };
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  const fiveMin = now - 5 * 60e3;
+  for (let i = lowerBound(list, Math.min(midnight, fiveMin)); i < list.length; i++) {
+    const r = list[i];
+    if (r.ts >= midnight) { today.requests++; today.cost += costOf(r); today.tokens += tokensOf(r); today.output += r.output; }
+    if (r.ts >= fiveMin) { win.requests++; win.cost += costOf(r); win.tokens += tokensOf(r); }
+  }
+  LV.totals = { k, today, rate: { tokensPerMin: win.tokens / 5, costPerMin: win.cost / 5, requestsPerMin: win.requests / 5 } };
+  return LV.totals;
+}
+
+function liveState() {
+  const now = Date.now();
+  const t = liveTotals(now);
+  const sessions = [];
+  for (const s of LV.sessions.values()) {
+    if (now - s.lastTs > LIVE_KEEP_MS) continue;
+    const idle = now - s.lastTs > LIVE_IDLE_MS;
+    const agents = [...s.agents.values()].map((a) => ({
+      agentId: a.agentId, agentType: a.agentType, desc: a.desc, model: a.model, phase: idle && a.phase !== 'done' ? 'idle' : a.phase,
+      phaseSince: a.phaseSince, currentTool: a.currentTool ? { ...a.currentTool } : null, requests: a.requests, cost: a.cost, lastTs: a.lastTs,
+      ...(a.endedTs ? { endedTs: a.endedTs } : {}),
+    }));
+    const main = s.agents.get('');
+    let phase = main.phase;
+    if (phase === 'idle' && agents.some((a) => a.agentId && a.phase !== 'done' && a.phase !== 'idle')) phase = 'generating';
+    if (idle) phase = 'idle';
+    const known = store.sessions[s.sessionId] || {};
+    sessions.push({
+      sessionId: s.sessionId, title: sessionTitle(s.sessionId), project: s.project, model: s.model, entrypoint: s.entrypoint,
+      startedTs: known.first && known.first < s.startedTs ? known.first : s.startedTs, lastTs: s.lastTs,
+      phase, phaseSince: idle ? Math.min(main.phaseSince, s.lastTs) : main.phaseSince,
+      currentTool: idle || !main.currentTool ? null : { ...main.currentTool },
+      promptText: s.promptText, promptTs: s.promptTs, context: { tokens: s.ctxTokens, limit: LIVE_CTX_LIMIT },
+      agents, turn: { ...s.turn }, recent: s.recent.slice(),
+    });
+  }
+  sessions.sort((a, b) => b.lastTs - a.lastTs);
+  const active = sessions.some((s) => s.phase === 'generating' || s.phase === 'tool' || now - s.lastTs < ACTIVE_MS);
+  return { now, active, sessions, today: t.today, rate: t.rate };
+}
+
+function liveSweepSessions(now) {
+  for (const [id, s] of LV.sessions) if (now - s.lastTs > LIVE_KEEP_MS) { LV.sessions.delete(id); LV.stateDirty = true; }
+  for (const [f, m] of LV.hot) if (now - m > LIVE_KEEP_MS) LV.hot.delete(f);
+}
+
+// ---- SSE
+
+function sseBroadcast(chunk) {
+  for (const sub of LV.subs) {
+    try {
+      if (sub.res.writableLength > SSE_BACKLOG_MAX) { sub.res.destroy(); continue; }
+      sub.res.write(chunk);
+    } catch { LV.subs.delete(sub); }
+  }
+}
+
+function sseState(event, state) {
+  return `id: ${LV.seq}\nevent: ${event}\ndata: ${JSON.stringify(state)}\n\n`;
+}
+
+function stateKey(st) { return JSON.stringify({ ...st, now: 0 }); }
+
+function sseConnect(req, res, u) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no', 'X-Content-Type-Options': 'nosniff',
+  });
+  if (req.method === 'HEAD') return res.end();
+  req.socket.setTimeout(0);
+  req.socket.setNoDelay(true);
+  res.write('retry: 1000\n\n');
+  const raw = req.headers['last-event-id'] || u.searchParams.get('lastEventId') || '';
+  const last = /^\d+$/.test(raw) ? Number(raw) : null;
+  if (last != null && last >= LV.evicted && last <= LV.seq) { // resume: replay what the client missed, then re-sync
+    for (const ev of LV.ring) if (ev.id > last) res.write(`id: ${ev.id}\nevent: ev\ndata: ${JSON.stringify(ev)}\n\n`);
+  }
+  const state = liveState();
+  res.write(sseState('snapshot', state));
+  const sub = { res };
+  if (!LV.subs.size) LV.lastPing = Date.now(); // first ping 15 s after the first subscriber
+  LV.subs.add(sub);
+  LV.lastStateStr = stateKey(state);
+  const done = () => { LV.subs.delete(sub); };
+  req.on('close', done);
+  res.on('close', done);
+  res.on('error', done);
+  liveEnsureRunning();
+}
+
+function liveTick() {
+  const now = Date.now();
+  for (const p of [...LV.pend.values()]) if (now - p.seen > LIVE_PARTIAL_MS) liveEmitRequest(p, 'timer');
+  liveSweepSessions(now);
+  liveEnsureWatch(now);
+  if (LV.subs.size) {
+    if (now - LV.lastPing >= LIVE_PING_MS) { LV.lastPing = now; sseBroadcast(': ping\n\n'); }
+    if (now - LV.lastStateAt >= LIVE_STATE_MIN_MS) {
+      const st = liveState();
+      const k = stateKey(st);
+      if (k !== LV.lastStateStr) { LV.lastStateStr = k; LV.lastStateAt = now; sseBroadcast(sseState('state', st)); }
+    }
+  }
+}
+
+// ---- freshness: fs.watch (recursive), one file scanned per change; polling when that is not available
+
+function liveScanFile(file) {
+  try { scanFile(file); } catch (e) { lastError = 'live scan: ' + String(e && e.message || e); }
+  if (!LV.tidyTimer) {
+    LV.tidyTimer = setTimeout(() => {
+      LV.tidyTimer = null;
+      try { resolveOrphans(); saveStore(); } catch (e) { lastError = String(e && e.message || e); }
+    }, 500);
+    LV.tidyTimer.unref();
+  }
+}
+
+function liveKick(file) { // scan right away, and once more 30 ms later for anything written in the meantime
+  const t = LV.fileTimers.get(file);
+  if (t) { t.again = true; return; }
+  const rec = { again: false, timer: null };
+  LV.fileTimers.set(file, rec);
+  setImmediate(() => liveScanFile(file));
+  rec.timer = setTimeout(() => {
+    LV.fileTimers.delete(file);
+    if (rec.again) liveScanFile(file);
+  }, 30);
+  rec.timer.unref();
+}
+
+function liveOnFsEvent(name) {
+  if (!LV.watcher) return;
+  const n = name == null ? '' : String(name);
+  if (!/\.jsonl$/i.test(n)) { liveCheckRoot(); return; } // directories, meta files; also guards a watcher spinning on a deleted root
+  liveKick(path.isAbsolute(n) ? path.normalize(n.replace(/^\\\\\?\\/, '')) : path.join(PROJECTS_DIR, n));
+}
+
+function liveCheckRoot() {
+  const now = Date.now();
+  if (now - LV.rootCheck < 250) return;
+  LV.rootCheck = now;
+  let ino = null;
+  try { ino = fs.statSync(PROJECTS_DIR).ino; } catch { /* gone */ }
+  if (ino == null || ino !== LV.watchIno) liveDropWatcher();
+}
+
+function liveDropWatcher() {
+  const w = LV.watcher;
+  LV.watcher = null;
+  if (w) { try { w.close(); } catch { /* ignore */ } }
+  LV.watchTry = 0; // the tick re-creates it
+}
+
+function liveStartPolling() {
+  if (LV.polling) return;
+  LV.polling = true;
+  LV.pollTimer = setInterval(() => {
+    const now = Date.now();
+    if (now - LV.lastWalk >= 2000) { // discover new transcripts
+      LV.lastWalk = now;
+      for (const f of walkJsonl(PROJECTS_DIR)) if (!store.files[f]) liveScanFile(f);
+    }
+    for (const [f, m] of LV.hot) {
+      let st;
+      try { st = fs.statSync(f); } catch { LV.hot.delete(f); continue; }
+      const fst = store.files[f];
+      if (st.mtimeMs !== m || (fst && st.size !== fst.offset)) liveScanFile(f);
+    }
+  }, 500);
+  LV.pollTimer.unref();
+}
+
+function liveEnsureWatch(now = Date.now()) {
+  if (LV.polling) return;
+  if (LV.watcher) {
+    if (now - LV.lastDirCheck > 5000) { LV.lastDirCheck = now; liveCheckRoot(); }
+    return;
+  }
+  if (now - LV.watchTry < 1000) return;
+  LV.watchTry = now;
+  if (process.env.CCU_LIVE_POLL === '1') return liveStartPolling();
+  let ino;
+  try { ino = fs.statSync(PROJECTS_DIR).ino; } catch { return; } // not there yet; try again on the next tick
+  try {
+    const w = fs.watch(PROJECTS_DIR, { recursive: true, persistent: false }, (type, name) => liveOnFsEvent(name));
+    w.on('error', () => { if (LV.watcher === w) liveDropWatcher(); });
+    w.on('close', () => { if (LV.watcher === w) { LV.watcher = null; LV.watchTry = 0; } });
+    LV.watcher = w;
+    LV.watchIno = ino;
+  } catch (e) {
+    if (e && e.code !== 'ENOENT') liveStartPolling(); // recursive watch unsupported here (older Linux Node)
+    return;
+  }
+  setImmediate(() => { try { scan(); } catch { /* scan reports its own errors */ } }); // cover anything written before the watcher existed
+}
+
+function liveEnsureRunning() {
+  if (LV.tick) return;
+  LV.tick = setInterval(liveTick, 1000);
+  LV.tick.unref();
+}
+
+function liveAttach(server) {
+  LV.servers.add(server);
+  liveEnsureRunning();
+  liveEnsureWatch();
+  const origClose = server.close;
+  server.close = function close(...args) { // open event streams would keep close() waiting forever
+    for (const sub of LV.subs) if (sub.res.socket && sub.res.socket.server === server) sub.res.destroy();
+    return origClose.apply(this, args);
+  };
+  server.once('close', () => {
+    LV.servers.delete(server);
+    if (!LV.servers.size) stopLive();
+  });
+}
+
+function stopLive() {
+  liveDropWatcher();
+  if (LV.tick) { clearInterval(LV.tick); LV.tick = null; }
+  if (LV.pollTimer) { clearInterval(LV.pollTimer); LV.pollTimer = null; }
+  LV.polling = false;
+  for (const rec of LV.fileTimers.values()) clearTimeout(rec.timer);
+  LV.fileTimers.clear();
+  if (LV.tidyTimer) { clearTimeout(LV.tidyTimer); LV.tidyTimer = null; }
+  for (const sub of LV.subs) { try { sub.res.destroy(); } catch { /* ignore */ } }
+  LV.subs.clear();
+}
+
 // ---------------------------------------------------------------- http
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json; charset=utf-8' };
@@ -965,6 +1501,10 @@ function handle(req, res) {
       case '/api/live':
         if (Date.now() - (lastScanAt || 0) > 1500) scan(); // freshest possible answer for the live indicator
         return sendJson(res, live());
+      case '/api/stream': return sseConnect(req, res, u);
+      case '/api/live/state':
+        if (!LV.watcher && !LV.polling && Date.now() - (lastScanAt || 0) > 1500) scan(); // no watcher (not started): stay fresh anyway
+        return sendJson(res, liveState());
       case '/api/request': {
         const d = requestDetail(q.get('key') || '');
         return d ? sendJson(res, d) : sendJson(res, { error: 'not found' }, 404);
@@ -1002,7 +1542,10 @@ function start(port = PORT, host = HOST) {
   const server = createServer();
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, host, () => resolve(server));
+    server.listen(port, host, () => {
+      liveAttach(server);
+      resolve(server);
+    });
   });
 }
 
@@ -1027,6 +1570,6 @@ if (require.main === module) {
 
 module.exports = {
   start, createServer, handle, scan, scanFile, handleLine, loadStore, saveStore, resetState, newFstate,
-  computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
+  liveState, stopLive, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
   _state: { get store() { return store; }, reqMap, byPrompt, STORE_FILE, START_MS, PROJECTS_DIR },
 };

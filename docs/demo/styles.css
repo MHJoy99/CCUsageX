@@ -411,3 +411,15 @@ table.mini th, table.mini td { padding: 7px 10px; }
   html { scroll-padding-top: 64px; }
 }
 .cc-host.clickable .charts-hit { cursor: pointer; }
+
+/* ---------------------------------------------------------------- views (Dashboard | Live) */
+.view-switch button { display: inline-flex; align-items: center; gap: 7px; }
+.view-switch .dot { width: 8px; height: 8px; background: var(--text-muted); }
+.view-switch button[aria-pressed="true"] .dot { box-shadow: 0 0 0 1.5px var(--on-ink); }
+.view-switch [data-state="idle"] .dot { background: var(--text-muted); }
+.view-switch [data-state="active"] .dot { background: #19c37d; }
+.view-switch [data-state="active"] .dot::after { border-color: #19c37d; }
+.view-switch [data-state="error"] .dot { background: var(--critical); }
+body[data-view="live"] #seg-range, body[data-view="live"] .topbar-in > .r2,
+body[data-view="live"] .topbar-in > .tb-break, body[data-view="live"] #export-btn { display: none; }
+body[data-view="live"] .topbar-in { padding-bottom: 10px; }

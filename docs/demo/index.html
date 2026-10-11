@@ -17,6 +17,7 @@
   })();
 </script>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="live.css">
 </head>
 <body>
 <div class="demo-banner" role="note">
@@ -34,6 +35,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V12M10 20V5M15 20v-8M20 20V9"/></svg>
       CCUsageX
     </a>
+    <div class="pill-group view-switch" role="group" aria-label="View" id="seg-view">
+      <button type="button" data-view="" aria-pressed="true">Dashboard</button>
+      <button type="button" data-view="live" aria-pressed="false" id="view-live-btn" data-state="idle" title="Real-time view of what Claude Code is doing right now"><span class="dot" aria-hidden="true"></span>Live</button>
+    </div>
     <div class="pill-group" role="group" aria-label="Time range" id="seg-range">
       <button type="button" data-v="today" aria-pressed="false">Today</button>
       <button type="button" data-v="24h" aria-pressed="false">Last 24h</button>
@@ -76,7 +81,9 @@
 </header>
 
 <main id="main">
-  <div class="wrap">
+  <!-- ================= Live view (built by live.js) ================= -->
+  <section class="live-view" id="live-view" aria-label="Live activity" hidden></section>
+  <div class="wrap" id="dash">
     <!-- ================= Hero ================= -->
     <section class="hero" id="overview">
       <div class="hero-grid">
@@ -242,6 +249,8 @@
 
 <script src="api.js"></script>
 <script src="charts.js"></script>
+<script src="live.js"></script>
 <script src="app.js"></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "a2f7f3d589ae4c8688a646d54918b0e7"}'></script>
 </body>
 </html>
