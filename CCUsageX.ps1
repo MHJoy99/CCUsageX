@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   start    Start server.js hidden in the background (unless this app already serves the port),
-           then open the dashboard in its own Edge app window (no tabs / address bar).
+           then open the dashboard in Google Chrome (Edge app window / default browser as fallback).
   stop     Stop the server recorded in state\server.pid (only after verifying it is this app's server.js).
   status   Print running/stopped, PID, URL and request/prompt counts.
   restart  stop + start.
@@ -160,7 +160,25 @@ function Show-ExistingWindow {
     return $true
 }
 
+function Find-Chrome {
+    $cands = @()
+    if ($env:ProgramFiles)        { $cands += (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe') }
+    if (${env:ProgramFiles(x86)}) { $cands += (Join-Path ${env:ProgramFiles(x86)} 'Google\Chrome\Application\chrome.exe') }
+    if ($env:LOCALAPPDATA)        { $cands += (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe') }
+    foreach ($c in $cands) { if (Test-Path -LiteralPath $c) { return $c } }
+    $cmd = Get-Command chrome.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+
 function Open-Dashboard {
+    # Opens the dashboard as a tab in the user's normal Google Chrome (falls back to Edge app window, then default browser).
+    $chrome = Find-Chrome
+    if ($chrome) {
+        Start-Process -FilePath $chrome -ArgumentList @($Url) | Out-Null
+        Write-Host "Opened dashboard in Google Chrome: $Url"
+        return
+    }
     if (Show-ExistingWindow) { Write-Host 'Dashboard window already open - brought to front.'; return }
     $edge = Find-Edge
     if ($edge) {
@@ -175,7 +193,7 @@ function Open-Dashboard {
         Start-Process -FilePath $edge -ArgumentList $edgeArgs | Out-Null
         Write-Host "Opened dashboard in Edge app window: $Url"
     } else {
-        Write-Host 'Edge not found - opening in the default browser.' -ForegroundColor Yellow
+        Write-Host 'Chrome and Edge not found - opening in the default browser.' -ForegroundColor Yellow
         Start-Process $Url | Out-Null
     }
 }
@@ -206,11 +224,15 @@ function Do-Start {
         if (-not $node) { Fail 'Node.js (node.exe) not found. Install Node 18+ or add it to PATH.' }
 
         New-Item -ItemType Directory -Force -Path $StateDir, $LogDir | Out-Null
+        # Lightweight mode: smaller young-generation heap and size-optimised GC roughly halve RAM;
+        # the old-space cap leaves headroom for years of logs.
+        $nodeFlags = @('--max-semi-space-size=2', '--optimize-for-size', '--max-old-space-size=192')
         $proc = Start-Process -FilePath $node `
-            -ArgumentList @(('"{0}"' -f $ServerJs), '--port', "$Port") `
+            -ArgumentList ($nodeFlags + @(('"{0}"' -f $ServerJs), '--port', "$Port")) `
             -WorkingDirectory $Root -WindowStyle Hidden -PassThru `
             -RedirectStandardOutput $OutLog -RedirectStandardError $ErrLog
         Set-Content -LiteralPath $PidFile -Value $proc.Id -Encoding ASCII
+        try { $proc.PriorityClass = 'BelowNormal' } catch { }
 
         $deadline = (Get-Date).AddSeconds(20)
         $ok = $false

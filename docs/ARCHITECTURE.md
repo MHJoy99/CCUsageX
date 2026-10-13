@@ -40,7 +40,7 @@ This document describes how the code works, so you can check its numbers or chan
 | UI | `public/app.js`, `public/index.html` | Fetches the API, renders tables, drawers and filters. |
 | Charts | `public/charts.js` | Dependency-free inline-SVG charts, exposed as `window.Charts`. |
 | Styles | `public/styles.css` | Design tokens (light and dark) and layout. |
-| Launcher | `CCUsageX.ps1`, `Open-CCUsageX.cmd`, `Close-CCUsageX.cmd` | Windows only: starts or stops the server and opens an Edge app window. |
+| Launcher | `CCUsageX.ps1`, `Open-CCUsageX.cmd`, `Close-CCUsageX.cmd` | Windows only: starts or stops the server and opens the dashboard in Chrome. |
 
 The server keeps everything in memory. Heavy responses are memoised (see [HTTP API](#http-api)), so a dashboard
 refresh does not re-walk the index for every panel.
@@ -600,7 +600,10 @@ It is a local command: no model call, `total_cost_usd` 0, no transcript, about 3
 `anthropic.claude-code-*` extension binary under `~/.vscode`, `.vscode-insiders`, `.cursor` or `.windsurf`.
 `CCU_LIMITS_PROBE=0` turns it off. Schedule: once about 3 seconds after start, then every 2 minutes while the dashboard
 is being viewed (an SSE subscriber, or any `/api` request in the last 10 minutes), otherwise every 15 minutes; never
-overlapping, 30 second timeout, and a back-off to 15 minutes after three consecutive failures. `GET /api/limits?refresh=1`
+overlapping, 30 second timeout. After a first or second failure in a row it retries after 15 seconds, so a one-off
+hiccup clears quickly; after three consecutive failures it backs off to 15 minutes. Each failure is logged to the
+server's stderr (`logs\server.err.log` with the Windows launcher) together with the last line of `claude`'s own stderr;
+the `probe.lastError` sent to the page stays short and path-free. `GET /api/limits?refresh=1`
 starts a probe unless one began less than 20 seconds ago and answers when it finishes (at most 15 seconds).
 
 The report's `rate_limits.limits[]` entries are `{ kind: session | weekly_all | weekly_scoped, percent, resets_at (ISO),

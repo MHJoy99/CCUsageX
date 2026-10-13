@@ -94,8 +94,8 @@ the demo locally with `npm run demo`.
 
 ### Windows: open it like a desktop app
 
-Double-click **`Open-CCUsageX.cmd`**. It starts the server hidden and opens the dashboard in its own Edge app window
-(no tabs, no address bar). `Close-CCUsageX.cmd` stops both. For a Start Menu entry and more, see
+Double-click **`Open-CCUsageX.cmd`**. It starts the server hidden and opens the dashboard in Google Chrome (Edge app window if Chrome is missing).
+`Close-CCUsageX.cmd` stops the server. For a Start Menu entry and more, see
 [`CCUsageX.ps1`](CCUsageX.ps1) (`-Action start|stop|status|restart`).
 
 ### macOS / Linux

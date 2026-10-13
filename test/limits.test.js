@@ -549,7 +549,13 @@ process.stdin.on('end', () => {
   if (mode === 'hang') return setInterval(() => {}, 1000);
   if (mode === 'fail') { process.stderr.write('/secret/path'); process.exit(3); }
   if (mode === 'garbage') { console.log('not json'); return; }
-  const text = fs.readFileSync(${JSON.stringify(SAMPLE)}, 'utf8');
+  // the fixture was captured at 2026-10-11T04:10Z: keep each resets_at the same distance ahead of now, so the windows never expire
+  const shift = Date.now() - Date.parse('2026-10-11T04:10:00Z');
+  const text = fs.readFileSync(${JSON.stringify(SAMPLE)}, 'utf8').split('"resets_at":"').map((part, i) => {
+    if (!i) return part;
+    const end = part.indexOf('"');
+    return new Date(Date.parse(part.slice(0, end)) + shift).toISOString() + part.slice(end);
+  }).join('"resets_at":"');
   if (mode === 'null') { const j = JSON.parse(text); j.usage_report.rate_limits = null; console.log(JSON.stringify(j)); return; }
   process.stdout.write(text);
 });
@@ -634,10 +640,14 @@ test('probe: runs end to end through CCU_CLAUDE_BIN (a .js path), stores a snaps
   assert.equal(srv.probePublic().ok, true, 'JSON array form');
 });
 
-test('probe: failures are short and path-free; three in a row back the schedule off to 15 min; success resets', async () => {
+test('probe: failures are short and path-free; one or two retry after 15 s; three in a row back off to 15 min; success resets', async () => {
   probeReset();
   process.env.FAKE_MODE = 'fail';
-  for (let i = 0; i < 3; i++) await srv.probeRun();
+  await srv.probeRun();
+  assert.equal(srv.probeInterval(), 15e3, 'a first failure retries quickly');
+  await srv.probeRun();
+  assert.equal(srv.probeInterval(), 15e3, 'a second failure retries quickly');
+  await srv.probeRun();
   const pub = srv.probePublic();
   assert.equal(pub.ok, false);
   assert.equal(pub.lastError, 'claude exited with code 3');

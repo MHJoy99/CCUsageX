@@ -5,6 +5,24 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-10-13
+
+### Fixed
+
+- **Plan limits no longer show "auto-refresh failed" for minutes after a one-off error.** After a first or second failed
+  `/usage` probe in a row the server retries after 15 seconds instead of waiting the full 2 (or 15) minute interval.
+  The back-off to 15 minutes after three failures is unchanged.
+- Probe failures are now diagnosable: each one is logged to the server's stderr with the last line of `claude`'s own
+  error output. The error shown on the page stays short and path-free.
+- Tests: the `/usage` fixture's reset times are shifted relative to now, so the probe tests no longer fail once the
+  captured 5-hour window has passed.
+
+### Changed
+
+- Windows launcher: opens the dashboard in Google Chrome (Edge app window, then the default browser, as fallbacks) and
+  runs the server in a lightweight mode (smaller Node heap, size-optimised GC, below-normal priority), roughly halving RAM.
+- FAQ: how to start the server hidden at logon, and what to do about "auto-refresh failed".
+
 ## [1.3.0] - 2026-10-11
 
 ### Added

@@ -74,6 +74,11 @@ The card explains which state it is in. The usual reasons are:
   providers and logins without profile access have no limit data.
 - **Stale.** The last report is more than 15 minutes old. With the automatic refresh working this clears itself within
   a couple of minutes.
+- **"auto-refresh failed (claude exited with code 1)".** `claude` started but returned an error. CCUsageX retries after
+  15 seconds, so a one-off failure (for example right after start-up) clears by itself. If it stays, the server log
+  (`logs\server.err.log` with the Windows launcher, otherwise the server's console) has a `limits probe failed` line with
+  `claude`'s own error message. Running `claude` once in a terminal usually shows the same problem (not signed in, an
+  update in progress).
 
 `node scripts/install-statusline.js --status` prints whether the status line hook is installed and whether its helper
 script is present.
@@ -129,9 +134,14 @@ desktop-app window are not available on macOS or Linux.
 ## How do I open CCUsageX as a desktop app on Windows?
 
 Double-click `Open-CCUsageX.cmd`, or run `CCUsageX.ps1 -Action start` in PowerShell. The script starts the server in the
-background, then opens the dashboard in its own Microsoft Edge window with no tabs or address bar. You can create a
-desktop or Start Menu shortcut to `Open-CCUsageX.cmd`. If Edge is not installed, the dashboard opens in your default
+background, then opens the dashboard in Google Chrome. You can create a
+desktop or Start Menu shortcut to `Open-CCUsageX.cmd`. If Chrome is not installed, it uses an Edge app window, then your default
 browser instead. Closing the window does not stop the server, and `Close-CCUsageX.cmd` does.
+
+To keep it running after every restart, put a shortcut in your Startup folder (`Win+R`, `shell:startup`) whose target is
+`pwsh.exe -WindowStyle Hidden -File "<path>\CCUsageX.ps1" -Action start -NoOpen` (use `powershell.exe` if PowerShell 7
+is not installed). It starts the server hidden at logon without opening a browser, and does nothing if it is already
+running.
 
 ## How do I export to CSV?
 

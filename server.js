@@ -1915,6 +1915,7 @@ const PROBE_INPUT = '{"type":"user","message":{"role":"user","content":"/usage"}
 const PROBE_TIMEOUT_MS = 30e3;
 const PROBE_FAST_MS = 2 * 60e3;       // while the dashboard is being looked at
 const PROBE_SLOW_MS = 15 * 60e3;      // otherwise, and after repeated failures
+const PROBE_RETRY_MS = 15e3;          // after a first or second failure in a row (a one-off CLI hiccup should not show for minutes)
 const PROBE_VIEW_MS = 10 * 60e3;      // "being looked at" = an SSE subscriber or an /api request within this time
 const PROBE_FIRST_MS = 3e3;
 const PROBE_MIN_GAP_MS = 20e3;        // ?refresh=1 will not start a probe closer than this to the previous one
@@ -2091,8 +2092,8 @@ function probeExec() {
     try {
       // a .cmd shim needs a shell; the arguments are fixed constants, so one quoted command line is safe (and avoids Node's DEP0190)
       child = bin.shell
-        ? require('child_process').spawn('"' + bin.cmd + '" ' + bin.args.join(' '), { cwd: os.tmpdir(), shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] })
-        : require('child_process').spawn(bin.cmd, bin.args, { cwd: os.tmpdir(), windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+        ? require('child_process').spawn('"' + bin.cmd + '" ' + bin.args.join(' '), { cwd: os.tmpdir(), shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+        : require('child_process').spawn(bin.cmd, bin.args, { cwd: os.tmpdir(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch { return finish({ ok: false, error: 'cannot start claude' }); }
     let out = '';
     let timedOut = false;
@@ -2105,13 +2106,20 @@ function probeExec() {
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d) => { if (out.length < PROBE_OUT_MAX) out += d; });
     child.stdout.on('error', () => {});
+    let err = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    child.stderr.on('error', () => {});
     child.stdin.on('error', () => {});
     child.on('error', (e) => { clearTimeout(timer); finish({ ok: false, error: e && e.code === 'ENOENT' ? 'claude not found' : 'cannot start claude' }); });
     child.on('close', (code) => {
       clearTimeout(timer);
       if (timedOut) return finish({ ok: false, error: 'timeout' });
       const rep = probeParseOutput(out);
-      if (!rep) return finish({ ok: false, error: code ? 'claude exited with code ' + code : 'no usage report in the output' });
+      if (!rep) {
+        const why = err.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() || '';
+        return finish({ ok: false, error: code ? 'claude exited with code ' + code : 'no usage report in the output', detail: why.slice(0, 300) });
+      }
       finish({ ok: true, report: rep });
     });
     try { child.stdin.end(PROBE_INPUT); } catch { /* the error handler reports */ }
@@ -2134,7 +2142,11 @@ function probeRun() {
         probeStore(snap);
         PROBE.lastOk = true; PROBE.lastOkAt = now; PROBE.lastError = null; PROBE.fails = 0;
       } catch { PROBE.lastOk = false; PROBE.lastError = 'could not save the report'; PROBE.fails++; }
-    } else { PROBE.lastOk = false; PROBE.lastError = r.error || 'probe failed'; PROBE.fails++; }
+    } else {
+      PROBE.lastOk = false; PROBE.lastError = r.error || 'probe failed'; PROBE.fails++;
+      // stderr detail goes to the local server log only; the public error stays short and path-free
+      console.error(new Date(now).toISOString() + ' limits probe failed (' + PROBE.fails + ' in a row): ' + PROBE.lastError + (r.detail ? ' | ' + r.detail : ''));
+    }
     PROBE.running = null;
     try { limitsRefresh(0); limitsBroadcast(true); } catch (e) { lastError = 'limits: ' + String(e && e.message || e); }
   })();
@@ -2144,6 +2156,7 @@ function probeRun() {
 
 function probeInterval(now = Date.now()) {
   if (PROBE.fails >= 3) return PROBE_SLOW_MS;
+  if (PROBE.fails > 0) return PROBE_RETRY_MS;
   return LV.subs.size || now - PROBE.viewAt < PROBE_VIEW_MS ? PROBE_FAST_MS : PROBE_SLOW_MS;
 }
 function probeNextAt(now = Date.now()) {
