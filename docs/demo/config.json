@@ -2,6 +2,25 @@
   "startDate": "all",
   "port": 3020,
   "scanIntervalSeconds": 5,
+  "widget": {
+    "_comment": "Claude Pulse desktop widget (public/widget.html). Times are 24-hour HH:MM. Edit, save, the widget picks it up within a minute.",
+    "usPeak": {
+      "_comment": "Informational band. Anthropic said on 2026-03-26 that on weekdays 5-11am PT the 5-hour session limits drain faster (https://www.businessinsider.com/claude-usage-caps-changes-popularity-anthropic-2026-3); on 2026-05-06 it removed that peak-hour reduction for Pro and Max, Team not named (https://www.anthropic.com/news/higher-limits-spacex). The widget calls it US busy hours and never claims it changes your limits. days: 0=Sunday ... 6=Saturday in timeZone; daylight saving is automatic.",
+      "enabled": true,
+      "days": [1, 2, 3, 4, 5],
+      "start": "05:00",
+      "end": "11:00",
+      "timeZone": "America/Los_Angeles",
+      "label": "US busy hours"
+    },
+    "heavyHours": {
+      "_comment": "Your heavy hours: when your weekly limit drains faster per dollar of work. auto = measured from your own usage (GET /api/burn-hours, needs the status line installed and minDays days of data); manual = use the range below; off = never show. threshold 1.15 = at least 15% faster than your average. Times are in this computer's time zone.",
+      "mode": "auto",
+      "manual": { "start": "21:00", "end": "03:00" },
+      "minDays": 3,
+      "threshold": 1.15
+    }
+  },
   "pricing": {
     "source": "Anthropic first-party API list prices (https://platform.claude.com/docs/en/about-claude/pricing), checked 2026-10-06",
     "unit": "USD per million tokens",

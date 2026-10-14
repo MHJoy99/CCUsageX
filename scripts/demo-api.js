@@ -469,12 +469,35 @@
     }
     return { payload: payload };
   })();
+  /* ================================================================== Burn-hours simulator (fictional)
+     Same shape as server.js GET /api/burn-hours (computeBurnHours). Scenario via ?burn=auto|learning|off (default "auto").
+     Hours 21-02 burn about 1.3x the baseline; 03-05 have no activity (cost 0, no measurable rate). */
+  var Burn = (function () {
+    var q = ''; try { q = new URLSearchParams(location.search).get('burn') || 'auto'; } catch (e) { q = 'auto'; }
+    var TZ = 'UTC'; try { TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { TZ = 'UTC'; }
+    // [pctPer100, cost, n] for local hours 0..23; null rate = no measurable activity in that hour
+    var ROWS = [
+      [9.6, 13.84, 41], [9.1, 11.62, 35], [8.3, 6.15, 22], [null, 0, 0], [null, 0, 0], [null, 0, 0],
+      [6.4, 1.48, 6], [6.8, 2.95, 11], [7.0, 4.70, 17], [7.2, 7.31, 24], [7.1, 8.06, 27], [6.9, 7.92, 26],
+      [7.3, 6.44, 21], [7.4, 6.10, 20], [7.1, 7.27, 25], [6.8, 7.85, 26], [7.0, 8.02, 27], [7.2, 7.13, 23],
+      [6.9, 6.58, 22], [7.3, 7.40, 25], [8.1, 9.30, 31], [9.5, 11.72, 36], [9.9, 13.05, 40], [10.1, 12.40, 38]
+    ];
+    function payload() {
+      if (q === 'learning') return { ok: false, reason: 'need more data', days: 1, ranges: [] };
+      if (q === 'off') return { ok: true, mode: 'off', ranges: [] };
+      var hours = ROWS.map(function (r, h) { return { h: h, pctPer100: r[0], cost: r[1], n: r[2] }; });
+      return { ok: true, mode: 'auto', timeZone: TZ, days: 9, minDays: 3, baselinePctPer100: 7.2, hours: hours,
+        ranges: [{ start: '21:00', end: '03:00', ratio: 1.3 }], reason: null };
+    }
+    return { payload: payload };
+  })();
   function json(o, st) { return new Response(JSON.stringify(o), { status: st || 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } }); }
 
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) || '';
     if (url.indexOf('/api/') === -1) return fetch0(input, init);
     if (url.indexOf('/api/limits') !== -1) return Promise.resolve(json(Lim.payload()));
+    if (url.indexOf('/api/burn-hours') !== -1) return Promise.resolve(json(Burn.payload()));
     if (url.indexOf('/api/live/state') !== -1) { var st0 = Sim.state(); st0.limits = Lim.payload(); return Promise.resolve(json(st0)); }
     if (url.indexOf('/api/stream') !== -1) return Promise.resolve(json({ error: 'use EventSource' }, 404));
     var sm = /\/api\/(request|prompt)\?(?:key|id)=(sim-[^&]+)/.exec(url);

@@ -531,6 +531,15 @@ Server-Sent Events. On connect: `retry: 1000`, then `event: snapshot` (the `/api
 every 15 s. Every event has a monotonic `id:`; reconnecting with `Last-Event-ID` (or `?lastEventId=`) replays up to
 500 missed events and then sends a fresh snapshot, which is the source of truth.
 
+### `GET /api/burn-hours`
+
+Your heavy hours, for the desktop widget. Per account, consecutive weekly-percentage snapshots (at most 3 hours
+apart, no other account's snapshot within 15 minutes) are paired with the API-equivalent cost of the requests between
+them and filed under the local hour of the interval's midpoint. Each hour is smoothed over three hours; an hour is
+heavy when its percent-per-dollar is at least `widget.heavyHours.threshold` (default 1.15) times the baseline.
+Needs `minDays` (default 3) distinct days. Fields: `ok`, `mode` (`auto`, `manual`, `off`), `timeZone`, `days`,
+`minDays`, `baselinePctPer100`, `hours[24]`, `ranges[{start,end,ratio}]`, `reason`, and `usPeak` (the informational
+band from `widget.usPeak`). Settings are in the `widget` block of `config.json`; see [WIDGET.md](WIDGET.md).
 ### Static files
 
 `GET /` serves `public/index.html`. Any other `GET` path maps to a file under `public/` (`app.js`, `charts.js`,
@@ -815,6 +824,9 @@ public/live.js, live.css  Live view (real-time)
 scripts/                  demo data, GitHub Pages demo build, screenshots, live stress generator
 scripts/statusline.js     status line helper that writes plan-limit snapshots (see Plan usage limits)
 scripts/install-statusline.js  installs, removes or shows the status line helper in settings.json
+public/widget.html, .css, .js  the Claude Pulse widget page
+integrations/rainmeter/     Rainmeter skin for the widget
+scripts/install-widget.ps1    installs or removes the Rainmeter widget (Windows)
 test/server.test.js       unit and API tests on synthetic transcripts (node --test)
 test/live.test.js         live view: stream, events, phases, subagent lifecycle, latency
 test/install-statusline.test.js  installer tests on temp config folders (node --test)

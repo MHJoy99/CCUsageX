@@ -23,6 +23,15 @@ For each prompt, request, model, project and session it shows: input tokens, out
 - Then open http://127.0.0.1:3020 (default port 3020; change with --port <n> or the PORT environment variable).
 - Windows launchers: Open-CCUsageX.cmd and Close-CCUsageX.cmd.
 
+## Desktop widget: Claude Pulse (version 1.4.0)
+
+Claude Pulse is a small always-visible widget served by the local CCUsageX at http://127.0.0.1:3020/widget.html (public/widget.html, widget.css, widget.js). Open it in any browser, or pin it to the Windows desktop with a Rainmeter skin (integrations/rainmeter/ClaudePulse/). It shows a 24-hour peak clock in your time zone with two bands, 5-hour and weekly limit rings with reset times, per-model weekly limits when Claude Code reports them, burn pace, section toggles, a compact mode and an offline state when the server is not running. Try it on fictional data: https://mhjoy99.github.io/CCUsageX/demo/widget.html
+
+- Your heavy hours: measured from your own usage history (when your weekly limit drains faster per dollar of work). Needs at least 3 distinct days of data (widget.heavyHours.minDays). Served by GET /api/burn-hours.
+- US busy hours: informational only (weekdays 5-11am Pacific Time, daylight saving automatic). Anthropic removed the peak-hour reduction for Pro and Max on 2026-05-06 (https://www.anthropic.com/news/higher-limits-spacex), so this band never claims to change your limits. Hide it with widget.usPeak.enabled set to false.
+- Config: the "widget" block of config.json, with usPeak (enabled, days, start, end, timeZone, label) and heavyHours (mode auto, manual or off, minDays, threshold). The widget's display choices (compact mode, visible sections) are kept in browser or Rainmeter storage.
+- Install on Windows (Rainmeter must already be installed): pwsh -File scripts/install-widget.ps1 (supports -WhatIf and -Port). Full docs: https://github.com/MHJoy99/CCUsageX/blob/main/docs/WIDGET.md
+
 ## Plan usage limits
 
 For Claude Pro and Max subscribers, CCUsageX shows the 5-hour session and 7-day weekly limits, with reset times, a pace projection, and per-model weekly limits when Claude Code reports them. The numbers come from Claude Code's documented /usage report (Agent SDK usage_report). The local server runs it automatically every 2 minutes while the dashboard is open (every 15 minutes otherwise), and a refresh button runs it on demand. It costs no model tokens, writes no transcript, needs no login, makes no direct API calls and never reads credentials.

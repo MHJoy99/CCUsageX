@@ -1915,6 +1915,7 @@ const PROBE_INPUT = '{"type":"user","message":{"role":"user","content":"/usage"}
 const PROBE_TIMEOUT_MS = 30e3;
 const PROBE_FAST_MS = 2 * 60e3;       // while the dashboard is being looked at
 const PROBE_SLOW_MS = 15 * 60e3;      // otherwise, and after repeated failures
+const PROBE_RETRY_MS = 15e3;          // after a first or second failure in a row (a one-off CLI hiccup should not show for minutes)
 const PROBE_VIEW_MS = 10 * 60e3;      // "being looked at" = an SSE subscriber or an /api request within this time
 const PROBE_FIRST_MS = 3e3;
 const PROBE_MIN_GAP_MS = 20e3;        // ?refresh=1 will not start a probe closer than this to the previous one
@@ -2091,8 +2092,8 @@ function probeExec() {
     try {
       // a .cmd shim needs a shell; the arguments are fixed constants, so one quoted command line is safe (and avoids Node's DEP0190)
       child = bin.shell
-        ? require('child_process').spawn('"' + bin.cmd + '" ' + bin.args.join(' '), { cwd: os.tmpdir(), shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] })
-        : require('child_process').spawn(bin.cmd, bin.args, { cwd: os.tmpdir(), windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+        ? require('child_process').spawn('"' + bin.cmd + '" ' + bin.args.join(' '), { cwd: os.tmpdir(), shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+        : require('child_process').spawn(bin.cmd, bin.args, { cwd: os.tmpdir(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch { return finish({ ok: false, error: 'cannot start claude' }); }
     let out = '';
     let timedOut = false;
@@ -2105,13 +2106,20 @@ function probeExec() {
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d) => { if (out.length < PROBE_OUT_MAX) out += d; });
     child.stdout.on('error', () => {});
+    let err = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    child.stderr.on('error', () => {});
     child.stdin.on('error', () => {});
     child.on('error', (e) => { clearTimeout(timer); finish({ ok: false, error: e && e.code === 'ENOENT' ? 'claude not found' : 'cannot start claude' }); });
     child.on('close', (code) => {
       clearTimeout(timer);
       if (timedOut) return finish({ ok: false, error: 'timeout' });
       const rep = probeParseOutput(out);
-      if (!rep) return finish({ ok: false, error: code ? 'claude exited with code ' + code : 'no usage report in the output' });
+      if (!rep) {
+        const why = err.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() || '';
+        return finish({ ok: false, error: code ? 'claude exited with code ' + code : 'no usage report in the output', detail: why.slice(0, 300) });
+      }
       finish({ ok: true, report: rep });
     });
     try { child.stdin.end(PROBE_INPUT); } catch { /* the error handler reports */ }
@@ -2134,7 +2142,11 @@ function probeRun() {
         probeStore(snap);
         PROBE.lastOk = true; PROBE.lastOkAt = now; PROBE.lastError = null; PROBE.fails = 0;
       } catch { PROBE.lastOk = false; PROBE.lastError = 'could not save the report'; PROBE.fails++; }
-    } else { PROBE.lastOk = false; PROBE.lastError = r.error || 'probe failed'; PROBE.fails++; }
+    } else {
+      PROBE.lastOk = false; PROBE.lastError = r.error || 'probe failed'; PROBE.fails++;
+      // stderr detail goes to the local server log only; the public error stays short and path-free
+      console.error(new Date(now).toISOString() + ' limits probe failed (' + PROBE.fails + ' in a row): ' + PROBE.lastError + (r.detail ? ' | ' + r.detail : ''));
+    }
     PROBE.running = null;
     try { limitsRefresh(0); limitsBroadcast(true); } catch (e) { lastError = 'limits: ' + String(e && e.message || e); }
   })();
@@ -2144,6 +2156,7 @@ function probeRun() {
 
 function probeInterval(now = Date.now()) {
   if (PROBE.fails >= 3) return PROBE_SLOW_MS;
+  if (PROBE.fails > 0) return PROBE_RETRY_MS;
   return LV.subs.size || now - PROBE.viewAt < PROBE_VIEW_MS ? PROBE_FAST_MS : PROBE_SLOW_MS;
 }
 function probeNextAt(now = Date.now()) {
@@ -2190,6 +2203,106 @@ function probePublic(now = Date.now()) {
   };
 }
 
+// ---------------------------------------------------------------- widget: measured heavy hours
+// "Your heavy hours": when does the weekly limit (7d %) drain fastest per dollar of API-equivalent work? Pure, from your own
+// limits history ({t ms, w, p %, r reset epoch s}) and request list. Different `r` = different account/window.
+const BH = { MAX_GAP_MS: 3 * 3600e3, GUARD_MS: 15 * 60e3, MIN_WINDOW_COST: 5 };
+const bhDtf = new Map();
+function bhZone() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } }
+function bhParts(ms, tz) {
+  let f = bhDtf.get(tz);
+  if (!f) { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }); bhDtf.set(tz, f); }
+  const o = {};
+  for (const x of f.formatToParts(new Date(ms))) o[x.type] = x.value;
+  return { h: Number(o.hour) % 24, day: o.year + '-' + o.month + '-' + o.day };
+}
+function bhHHMM(m) { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
+
+// hist: [{t,w,p,r}]; reqs: ascending by ts with .cost.total; cfg: CONFIG.widget.heavyHours-like
+function computeBurnHours(hist, reqs, cfg = {}, tz = bhZone()) {
+  const mode = cfg.mode === 'manual' || cfg.mode === 'off' ? cfg.mode : 'auto';
+  const minDays = Math.max(1, Number(cfg.minDays) || 3);
+  const threshold = Number(cfg.threshold) > 1 ? Number(cfg.threshold) : 1.15;
+  const base = { ok: true, mode, timeZone: tz, days: 0, minDays, baselinePctPer100: null, hours: [], ranges: [], reason: '' };
+  if (mode === 'off') return { ...base, reason: 'off' };
+  if (mode === 'manual') {
+    const m = cfg.manual || {};
+    if (!/^\d{1,2}:\d{2}$/.test(m.start || '') || !/^\d{1,2}:\d{2}$/.test(m.end || '')) return { ...base, ok: false, reason: 'manual range missing' };
+    return { ...base, ranges: [{ start: m.start.padStart(5, '0'), end: m.end.padStart(5, '0'), ratio: null }], reason: 'manual' };
+  }
+  const pts = (hist || []).filter((x) => x && typeof x.t === 'number' && typeof x.p === 'number').slice().sort((a, b) => a.t - b.t);
+  // account of every row: 7d rows carry their own reset; other rows borrow it from a 7d row with the same t
+  const acctAt = new Map();
+  for (const x of pts) if (x.w === '7d' && x.r != null) acctAt.set(x.t, x.r);
+  const events = [];
+  for (const x of pts) { const a = x.w === '7d' ? x.r : acctAt.get(x.t); if (a != null) events.push({ t: x.t, a }); }
+  const by = new Map();
+  for (const x of pts) if (x.w === '7d' && x.r != null) { if (!by.has(x.r)) by.set(x.r, []); by.get(x.r).push(x); }
+  const agg = Array.from({ length: 24 }, () => ({ dp: 0, cost: 0, n: 0 }));
+  const days = new Set();
+  let totDp = 0, totCost = 0;
+  const costBetween = (t1, t2) => {
+    let a = 0, b = reqs.length;
+    while (a < b) { const m = (a + b) >> 1; if (reqs[m].ts < t1) a = m + 1; else b = m; }
+    let c = 0;
+    for (let i = a; i < reqs.length && reqs[i].ts < t2; i++) c += (reqs[i].cost && reqs[i].cost.total) || 0;
+    return c;
+  };
+  const otherNear = (acct, t1, t2) => {
+    const from = t1 - BH.GUARD_MS, to = t2 + BH.GUARD_MS;
+    let a = 0, b = events.length;
+    while (a < b) { const m = (a + b) >> 1; if (events[m].t < from) a = m + 1; else b = m; }
+    for (let i = a; i < events.length && events[i].t <= to; i++) if (events[i].a !== acct) return true;
+    return false;
+  };
+  for (const [acct, rows] of by) {
+    for (let i = 1; i < rows.length; i++) {
+      const a = rows[i - 1], b = rows[i], dp = b.p - a.p;
+      if (dp < 0 || b.t - a.t > BH.MAX_GAP_MS || b.t <= a.t) continue;
+      if (otherNear(acct, a.t, b.t)) continue;
+      const cost = costBetween(a.t, b.t);
+      if (!(cost > 0)) continue;
+      const pt = bhParts((a.t + b.t) / 2, tz), g = agg[pt.h];
+      g.dp += dp; g.cost += cost; g.n++;
+      totDp += dp; totCost += cost; days.add(pt.day);
+    }
+  }
+  base.days = days.size;
+  if (days.size < minDays || !(totCost > 0) || !(totDp > 0)) return { ...base, ok: false, reason: 'need more data' };
+  const baseline = totDp / totCost;
+  base.baselinePctPer100 = Math.round(baseline * 1e4) / 100;
+  const sm = agg.map((_, h) => {
+    let dp = 0, cost = 0;
+    for (const d of [-1, 0, 1]) { const g = agg[(h + d + 24) % 24]; dp += g.dp; cost += g.cost; }
+    return { dp, cost, rate: cost > 0 ? dp / cost : null };
+  });
+  base.hours = agg.map((g, h) => ({ h, pctPer100: sm[h].rate == null ? null : Math.round(sm[h].rate * 1e4) / 100, cost: Math.round(g.cost * 100) / 100, n: g.n }));
+  // an hour needs data of its own, so smoothing never stretches a range into hours you did not use
+  const heavy = sm.map((x, h) => agg[h].cost > 0 && x.cost >= BH.MIN_WINDOW_COST && x.rate != null && x.rate >= threshold * baseline);
+  if (heavy.every(Boolean)) return { ...base, reason: 'no clear heavy window' };
+  // contiguous runs on the 24 h circle (start scanning at a non-heavy hour so runs never straddle the scan edge)
+  const start0 = heavy.findIndex((v) => !v);
+  for (let k = 0; k < 24;) {
+    const h = (start0 + k) % 24;
+    if (!heavy[h]) { k++; continue; }
+    let len = 0, w = 0, ws = 0;
+    while (k + len < 24 && heavy[(start0 + k + len) % 24]) { const x = sm[(start0 + k + len) % 24]; w += x.cost; ws += x.cost * (x.rate / baseline); len++; }
+    base.ranges.push({ start: bhHHMM(h * 60), end: bhHHMM((h + len) * 60), ratio: Math.round((ws / w) * 100) / 100 });
+    k += len;
+  }
+  base.ranges.sort((a, b) => a.start.localeCompare(b.start));
+  base.reason = base.ranges.length ? 'measured' : 'no clear heavy window';
+  return base;
+}
+
+function burnHoursPayload() {
+  limitsRefresh(2000);
+  const w = CONFIG.widget || {};
+  const out = computeBurnHours(LIM.hist.points, sortedList(), w.heavyHours || {});
+  out.usPeak = w.usPeak || null;
+  return out;
+}
+
 // ---------------------------------------------------------------- http
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json; charset=utf-8' };
@@ -2232,6 +2345,7 @@ function handle(req, res) {
       case '/api/live':
         if (Date.now() - (lastScanAt || 0) > 1500) scan(); // freshest possible answer for the live indicator
         return sendJson(res, live());
+      case '/api/burn-hours': return sendRaw(res, memoJson(key, burnHoursPayload));
       case '/api/limits':
         if (q.get('refresh') === '1' && probeEnabled()) {
           return probeRefresh().then(() => { limitsRefresh(0); sendJson(res, limitsPayload()); })
@@ -2309,6 +2423,6 @@ if (require.main === module) {
 
 module.exports = {
   start, createServer, handle, scan, scanFile, handleLine, loadStore, saveStore, resetState, newFstate,
-  liveState, stopLive, computeLimits, limitsPayload, probeStart, probeStop, probeRun, probeRefresh, probePublic, probeParseOutput, probeSnapshot, probeResolveBin, probeInterval, probeTouch, _probe: PROBE, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
+  computeBurnHours, burnHoursPayload, liveState, stopLive, computeLimits, limitsPayload, probeStart, probeStop, probeRun, probeRefresh, probePublic, probeParseOutput, probeSnapshot, probeResolveBin, probeInterval, probeTouch, _probe: PROBE, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
   _state: { get store() { return store; }, reqMap, byPrompt, STORE_FILE, START_MS, PROJECTS_DIR },
 };

@@ -143,6 +143,13 @@ To keep it running after every restart, put a shortcut in your Startup folder (`
 is not installed). It starts the server hidden at logon without opening a browser, and does nothing if it is already
 running.
 
+## Is there a desktop widget for my plan limits?
+
+Yes: Claude Pulse. On Windows with Rainmeter, run `scripts\install-widget.ps1`; on any OS open
+`http://127.0.0.1:3020/widget.html` in a browser. It shows the 5-hour and weekly rings, burn pace and your heavy hours.
+The US busy-hours band is informational only: Anthropic removed the peak-hour limit reduction for Pro and Max on
+2026-05-06. Your heavy hours are measured from your own history and need at least 3 days of data. See
+[WIDGET.md](WIDGET.md).
 ## How do I export to CSV?
 
 Click the export button in the dashboard header. It downloads every request that matches the current filters, newest

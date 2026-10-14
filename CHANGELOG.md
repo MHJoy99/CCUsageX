@@ -5,6 +5,25 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-15
+
+### Added
+
+- **Desktop widget "Claude Pulse"** (`public/widget.html`): a compact glass widget with a 24-hour peak clock, 5-hour and
+  weekly rings, per-model weekly limits, burn pace, settings gear, compact mode and an offline state. Works in any
+  browser at `http://127.0.0.1:3020/widget.html`. See [docs/WIDGET.md](docs/WIDGET.md).
+- **Measured heavy hours.** `GET /api/burn-hours` finds the hours of the day when your weekly limit drains faster per
+  dollar of work (per-account weekly percentage against API-equivalent cost, per local hour, 3-hour smoothing, 1.15x
+  baseline, at least 3 days of data), alongside an informational US busy-hours band.
+- **`widget` block in `config.json`** (`usPeak` and `heavyHours` settings).
+- **Rainmeter skin** (`integrations/rainmeter/ClaudePulse/`) and **installer** `scripts/install-widget.ps1`: checks
+  Rainmeter, installs the pinned and SHA256-verified WebView2 plugin, copies and activates the skin, optional
+  `-StartWithWindows`, `-WhatIf` dry run and `-Uninstall`. No admin rights.
+
+### Changed
+
+- The widget shows times in your computer's local time zone.
+- README, FAQ and architecture notes cover the widget.
 ## [1.3.1] - 2026-10-13
 
 ### Fixed

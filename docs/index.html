@@ -60,7 +60,8 @@
     "Subagent cost attribution",
     "Searchable prompt text",
     "Persistent local history",
-    "CSV export"
+    "CSV export",
+    "Claude Pulse desktop widget: peak clock, 5-hour and weekly limit rings, burn pace"
   ],
   "author": {
     "@id": "https://mhjoy99.github.io/CCUsageX/#author"
@@ -225,6 +226,7 @@
     <a class="brand" href="./" aria-label="CCUsageX home"><img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/logo-static.svg" alt="" width="28" height="28">CCUsageX</a>
     <nav class="nav" aria-label="Primary">
       <a class="hide-s" href="#features">Features</a>
+      <a class="hide-s" href="#widget">Widget</a>
       <a class="hide-s" href="#how">How it works</a>
       <a class="hide-s" href="#compare">Compare</a>
       <a class="hide-s" href="#faq">FAQ</a>
@@ -303,6 +305,41 @@
         <img src="https://raw.githubusercontent.com/MHJoy99/CCUsageX/main/assets/plan-limits.svg" alt="Animated example of the Plan limits card: 5-hour session and weekly gauges with reset countdowns" width="1280" height="480" loading="lazy">
         <div class="body"><h3>Plan limits</h3><p>See your Claude Pro or Max 5-hour session and 7-day weekly limits, with reset times and a pace projection, plus per-model weekly limits when Claude Code reports them. CCUsageX reads Claude Code's own /usage report and refreshes it automatically every 2 minutes while the dashboard is open. It uses no login, no model tokens and no credentials. The optional status line gives instant updates in terminal sessions.</p></div>
       </article>
+    </div>
+  </div>
+</section>
+
+<section id="widget" aria-labelledby="widget-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">New in 1.4.0 · Desktop widget</p>
+      <h2 id="widget-title">Claude Pulse: your limits and heavy hours on the desktop</h2>
+      <p>A small always-visible widget that shows how much of your Claude plan is left and when your own usage burns it fastest.</p>
+    </div>
+    <div class="widget-grid">
+      <div class="widget-copy">
+        <ul class="widget-list">
+          <li><strong>Peak clock.</strong> A 24-hour dial with your measured heavy hours and, as information only, the US busy hours.</li>
+          <li><strong>5-hour and weekly rings</strong> with reset times, plus <strong>per-model weekly</strong> limits when Claude Code reports them.</li>
+          <li><strong>Burn pace.</strong> Whether you are on track to hit a limit before it resets.</li>
+          <li><strong>Toggles and compact mode.</strong> Show only the sections you want, shrink it to a slim strip.</li>
+          <li><strong>Offline state.</strong> If CCUsageX is not running, the widget says so instead of showing stale numbers.</li>
+          <li><strong>Works in any browser too.</strong> Open <code>http://127.0.0.1:3020/widget.html</code> while CCUsageX runs.</li>
+        </ul>
+        <p class="cmd-label">Pin it to the Windows desktop (needs Rainmeter)</p>
+        <div class="cmd"><span class="p" aria-hidden="true">&gt;</span><code>pwsh -File scripts/install-widget.ps1</code><button type="button" hidden data-copy="pwsh -File scripts/install-widget.ps1" aria-label="Copy widget install command">Copy</button></div>
+        <p class="widget-note"><strong>About the US busy-hours band.</strong> Anthropic removed the peak-hour reduction for Pro and Max on 2026-05-06 (<a href="https://www.anthropic.com/news/higher-limits-spacex">announcement</a>), so the US band is informational and never claims to change your limits. Your heavy hours are measured from your own usage and need at least 3 days of data.</p>
+        <p style="margin:18px 0 0"><a href="demo/widget.html">Open the demo full page</a> · <a href="https://github.com/MHJoy99/CCUsageX/blob/main/docs/WIDGET.md">Widget docs</a></p>
+      </div>
+      <div class="widget-frame">
+        <iframe src="demo/widget.html" title="Claude Pulse widget live demo (fictional data)" width="340" height="720" loading="lazy" scrolling="no"></iframe>
+        <p>Live demo, fictional data.</p>
+      </div>
+    </div>
+    <div class="widget-shots">
+      <figure><img src="screenshots/widget-expanded.png" alt="Claude Pulse widget expanded: peak clock, 5-hour and weekly rings, per-model weekly and burn pace" width="336" height="644" loading="lazy"><figcaption>Expanded</figcaption></figure>
+      <figure><img src="screenshots/widget-compact.png" alt="Claude Pulse widget in compact mode" width="336" height="436" loading="lazy"><figcaption>Compact</figcaption></figure>
+      <figure><img src="screenshots/widget-settings.png" alt="Claude Pulse widget settings with section toggles" width="336" height="526" loading="lazy"><figcaption>Settings</figcaption></figure>
     </div>
   </div>
 </section>

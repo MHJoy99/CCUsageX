@@ -59,6 +59,8 @@ Nothing is uploaded anywhere, and it needs nothing but Node.js 18+.
 - **Plan usage limits.** Your 5-hour session and 7-day weekly limits on Pro and Max, with reset times, a pace
   projection and a small history, plus per-model weekly limits when Claude Code reports them. Read from Claude Code's own
   `/usage` report and refreshed automatically; see [Plan usage limits](#plan-usage-limits).
+- **Desktop widget.** A small always-visible Claude Pulse widget (Rainmeter on Windows, or any browser) with your limits,
+  burn pace and measured heavy hours; see [Desktop widget](#desktop-widget-windows-rainmeter).
 - **Models, effort, speed.** Output tokens per second, response time (typical and slowest 5%), effort levels and
   Claude Code versions.
 - **Tools, sessions, projects.** Which tools ran how often, per-session and per-project breakdowns.
@@ -148,6 +150,35 @@ Things to know:
 Details, including the data fields and the burn-rate projection, are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#plan-usage-limits).
 
+## Desktop widget (Windows, Rainmeter)
+
+**Claude Pulse** is a small desktop widget that keeps your limits in sight while you work. It shows:
+
+- a **peak clock** with **your heavy hours** (measured from your own history) and the informational **US busy hours**,
+- the **5-hour** and **weekly** rings with reset times, and **per-model** weekly limits,
+- your **burn pace**, a **settings gear**, a **compact mode**, and a clear **offline** state when CCUsageX is not running.
+
+Install it on Windows with [Rainmeter](https://www.rainmeter.net) (CCUsageX must be running):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-widget.ps1
+```
+
+Remove it with `scripts\install-widget.ps1 -Uninstall` (add `-RemovePlugin` to delete the plugin too). Add
+`-StartWithWindows` to launch Rainmeter at logon, or `-WhatIf` to preview. The installer needs no admin rights and
+never installs Rainmeter itself.
+
+**Any OS, no Rainmeter:** open **http://127.0.0.1:3020/widget.html** in a browser; it is the same widget.
+
+**Privacy.** Local only. The widget talks to `127.0.0.1` and nothing else. The only network access is the one-time
+download of the [WebView2 plugin](https://github.com/NSTechBytes/WebView2) from its official GitHub release, checked
+against a pinned SHA256.
+
+**An honest note on the two bands.** Anthropic said on 2026-03-26 that 5-hour limits drain faster on weekdays 5-11am
+Pacific, then [removed that reduction for Pro and Max on 2026-05-06](https://www.anthropic.com/news/higher-limits-spacex).
+So the US band is **informational** and labelled that way. The **heavy-hours band is measured from your own
+history** (limit percentage used per dollar of work, by hour of day) and needs at least 3 days of data. Details,
+configuration and troubleshooting: [docs/WIDGET.md](docs/WIDGET.md).
 ## Screenshots
 
 <div align="center">

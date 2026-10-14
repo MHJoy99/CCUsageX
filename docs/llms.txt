@@ -1,6 +1,6 @@
 # CCUsageX
 
-> CCUsageX is a free, open-source (MIT), local-only web dashboard for Claude Code usage. It reads Claude Code's own transcript logs (read-only) and shows every prompt, request, model, token type (input, output, cache write, cache read, thinking), API-equivalent cost, cache hit rate and savings, response time, tools, sessions and projects. Zero dependencies (Node.js 18+), binds to 127.0.0.1 only, nothing leaves the machine. Run it with `npx github:MHJoy99/CCUsageX`. It also shows Claude Pro and Max plan limits (5-hour session and 7-day weekly limits, reset times, pace projection) from Claude Code's documented /usage report, refreshed automatically. An optional status line gives instant updates in terminal sessions.
+> CCUsageX is a free, open-source (MIT), local-only web dashboard for Claude Code usage. It reads Claude Code's own transcript logs (read-only) and shows every prompt, request, model, token type (input, output, cache write, cache read, thinking), API-equivalent cost, cache hit rate and savings, response time, tools, sessions and projects. Zero dependencies (Node.js 18+), binds to 127.0.0.1 only, nothing leaves the machine. Run it with `npx github:MHJoy99/CCUsageX`. It also shows Claude Pro and Max plan limits (5-hour session and 7-day weekly limits, reset times, pace projection) from Claude Code's documented /usage report, refreshed automatically. An optional status line gives instant updates in terminal sessions. Version 1.4.0 adds Claude Pulse, a small desktop widget (public/widget.html, also a Rainmeter skin on Windows) with a 24-hour peak clock, 5-hour and weekly rings, per-model weekly limits and burn pace.
 
 CCUsageX is a Claude Code usage dashboard, token usage analyzer and cost tracker. Costs are API-equivalent: what the usage would cost at Anthropic API list prices, which is useful even on a Pro or Max subscription.
 
@@ -14,6 +14,8 @@ CCUsageX is a Claude Code usage dashboard, token usage analyzer and cost tracker
 ## Try it
 
 - [Live demo (fictional data, runs in the browser)](https://mhjoy99.github.io/CCUsageX/demo/)
+- [Claude Pulse widget demo (fictional data)](https://mhjoy99.github.io/CCUsageX/demo/widget.html)
+- [Widget docs](https://github.com/MHJoy99/CCUsageX/blob/main/docs/WIDGET.md)
 - [Project website](https://mhjoy99.github.io/CCUsageX/)
 - [Source code on GitHub](https://github.com/MHJoy99/CCUsageX)
 

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Pulse widget — CCUsageX live demo</title>
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://mhjoy99.github.io/CCUsageX/demo/widget.html">
+<meta name="description" content="Interactive demo of the CCUsageX desktop widget: plan limits, peak-hour clock and burn pace on fictional data.">
+<link rel="stylesheet" href="widget.css">
+<style>
+  html, body { overflow: auto !important; }
+  .demo-caption { box-sizing: border-box; width: 100%; padding: 12px 14px 16px; text-align: center; font: 500 11px/1.4 -apple-system,'Segoe UI',system-ui,sans-serif; color: #6b6478; }
+  .demo-caption a { color: #5b3df5; text-decoration: underline; text-underline-offset: 2px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="card" class="mode-expanded" data-state="off">
+    <header class="drag">
+      <div class="brand">
+        <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l3-7 5 14 3-7h5"/></svg></div>
+        <b>Claude Pulse</b>
+      </div>
+      <button id="gear" class="icon-btn nodrag" aria-label="Widget settings" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>
+      </button>
+    </header>
+
+    <main id="views">
+      <div id="view-main" class="stack">
+        <section id="sec-peak" class="panel enter" style="--i:0">
+          <div class="clock">
+            <svg viewBox="0 0 120 120" id="clockSvg" aria-hidden="true">
+              <circle class="trk" cx="60" cy="60" r="42" stroke-width="7"/>
+              <circle class="trk" cx="60" cy="60" r="32" stroke-width="5"/>
+              <g id="arcs"></g>
+              <g class="ticks"></g>
+              <text x="60" y="6">12A</text><text x="115" y="60">6A</text><text x="60" y="114">12P</text><text x="5" y="60">6P</text>
+            </svg>
+            <div class="hand jump" id="hand"><i></i></div>
+            <div class="clock-c"><b id="clockNow">--:--</b><small id="clockAp"></small></div>
+          </div>
+          <div class="hero-r">
+            <div class="chip"><span class="glow"></span><span class="dot"></span><span id="chipText">OFF-PEAK</span></div>
+            <div class="cap" id="cap">&nbsp;</div>
+            <div class="cd-l" id="cdLabel">&nbsp;</div>
+            <div class="cd-v" id="cdValue">--</div>
+            <div class="cd-s" id="cdSub">&nbsp;</div>
+          </div>
+          <div class="legend">
+            <div><i class="sw-h"></i><span id="lgMeasuredL">Your heavy hours</span><em id="lgMeasured">--</em></div>
+            <div id="lgUs"><i class="sw-o"></i><span id="lgOfficialL">US busy hours</span><em id="lgOfficial">--</em></div>
+          </div>
+        </section>
+
+        <div id="usage" class="stack">
+          <div class="tiles" id="tiles">
+            <section class="panel tile enter" id="sec-session" data-sev="ok" style="--i:1">
+              <h4>5-hour session</h4>
+              <div class="cv" id="sessCv">--</div>
+              <div class="ring"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"/><circle class="fg" id="sessArc" cx="50" cy="50" r="42"/></svg><div class="num"><span><b id="sessNum">--</b><small>%</small></span></div></div>
+              <div class="bar"><i id="sessBar"></i></div>
+              <div class="r1" id="sessR1">--</div>
+              <div class="r2" id="sessR2">&nbsp;</div>
+              <div class="rc" id="sessRc"></div>
+              <div class="detail"><span class="a" id="sessDA"></span><span class="b" id="sessDB"></span></div>
+            </section>
+            <section class="panel tile enter" id="sec-weekly" data-sev="ok" style="--i:2">
+              <h4>Weekly limit</h4>
+              <div class="cv" id="weekCv">--</div>
+              <div class="ring"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"/><circle class="fg" id="weekArc" cx="50" cy="50" r="42"/></svg><div class="num"><span><b id="weekNum">--</b><small>%</small></span></div></div>
+              <div class="bar"><i id="weekBar"></i></div>
+              <div class="r1" id="weekR1">--</div>
+              <div class="r2" id="weekR2">&nbsp;</div>
+              <div class="rc" id="weekRc"></div>
+              <div class="detail"><span class="a" id="weekDA"></span><span class="b" id="weekDB"></span></div>
+            </section>
+          </div>
+          <section class="panel enter" id="sec-models" style="--i:3"></section>
+          <section class="panel enter" id="sec-pace" style="--i:4"><div class="p1" id="paceA"></div><div class="p2" id="paceB"></div></section>
+        </div>
+
+        <section class="panel enter" id="sec-offline" style="--i:1" hidden>
+          <div class="orb"></div><b>Usage server offline</b><span>The clock keeps running. Retrying quietly.</span>
+        </section>
+        <section class="panel" id="sec-empty" hidden>Everything is hidden. Use the gear to bring sections back.</section>
+      </div>
+
+      <div id="view-settings" hidden>
+        <h3>Widget settings</h3>
+        <div class="panel" style="padding:4px 12px">
+          <label class="row"><span>Peak clock<small>24-hour ring and countdown</small></span><input type="checkbox" data-sec="peak"><i class="tg"></i></label>
+          <label class="row"><span>US busy hours<small>band on the clock, informational</small></span><input type="checkbox" data-sec="usp"><i class="tg"></i></label>
+          <label class="row"><span>5-hour session<small>usage ring and reset</small></span><input type="checkbox" data-sec="session"><i class="tg"></i></label>
+          <label class="row"><span>Weekly limit<small>usage ring and reset</small></span><input type="checkbox" data-sec="weekly"><i class="tg"></i></label>
+          <label class="row"><span>Per-model weekly<small>for example Fable</small></span><input type="checkbox" data-sec="models"><i class="tg"></i></label>
+          <label class="row"><span>Burn pace<small>estimate from your recent rate</small></span><input type="checkbox" data-sec="pace"><i class="tg"></i></label>
+        </div>
+        <div class="seg" role="group" aria-label="Size"><button data-mode="expanded">Expanded</button><button data-mode="compact">Compact</button></div>
+        <button class="done" id="done">Done</button>
+        <div class="hint">Hours are set in config.json, under "widget"</div>
+      </div>
+    </main>
+
+    <footer class="drag">
+      <button class="sig nodrag" id="brand" title="Open the CCUsageX dashboard">CCUsage<i>X</i></button>
+      <span id="updated"></span>
+      <button class="link nodrag" id="open">Dashboard &#8599;</button>
+    </footer>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="widget.js"></script>
+<div class="demo-caption" role="note">
+  <strong>Live demo</strong> · fictional data, running entirely in your browser ·
+  <a href="https://github.com/MHJoy99/CCUsageX#quick-start">Run the widget on your own Claude Code logs →</a>
+</div>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "a2f7f3d589ae4c8688a646d54918b0e7"}'></script>
+</body>
+</html>
