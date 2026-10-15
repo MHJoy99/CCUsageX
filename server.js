@@ -2219,7 +2219,9 @@ function probePublic(now = Date.now()) {
 // ---------------------------------------------------------------- widget: measured heavy hours
 // "Your heavy hours": when does the weekly limit (7d %) drain fastest per dollar of API-equivalent work? Pure, from your own
 // limits history ({t ms, w, p %, r reset epoch s}) and request list. Different `r` = different account/window.
-const BH = { MAX_GAP_MS: 3 * 3600e3, GUARD_MS: 15 * 60e3, MIN_WINDOW_COST: 5 };
+// MIN_CHUNK_COST: a stretch needs about 1.5 weekly points of work, or whole-point rounding is most of its rate.
+// MIN_WINDOW_COST: an hour (with its two neighbours) needs this much work before it can be called heavy.
+const BH = { MAX_GAP_MS: 3 * 3600e3, GUARD_MS: 15 * 60e3, MIN_WINDOW_COST: 50, CHUNK_MS: 3 * 3600e3, MIN_CHUNK_COST: 20, OUTLIER_X: 3 };
 const bhDtf = new Map();
 function bhZone() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } }
 function bhParts(ms, tz) {
@@ -2260,12 +2262,11 @@ function computeBurnHours(hist, reqs, cfg = {}, tz = bhZone()) {
   const agg = Array.from({ length: 24 }, () => ({ dp: 0, cost: 0, n: 0 }));
   const days = new Set();
   let totDp = 0, totCost = 0;
-  // null when a request in [t1, t2) has no price (unknown model): that interval is skipped, never counted as $0
+  const firstAt = (t) => { let a = 0, b = reqs.length; while (a < b) { const m = (a + b) >> 1; if (reqs[m].ts < t) a = m + 1; else b = m; } return a; };
+  // null when a request in [t1, t2) has no price (unknown model): that stretch is skipped, never counted as $0
   const costBetween = (t1, t2) => {
-    let a = 0, b = reqs.length;
-    while (a < b) { const m = (a + b) >> 1; if (reqs[m].ts < t1) a = m + 1; else b = m; }
     let c = 0;
-    for (let i = a; i < reqs.length && reqs[i].ts < t2; i++) {
+    for (let i = firstAt(t1); i < reqs.length && reqs[i].ts < t2; i++) {
       if (!reqs[i].cost) return null;
       c += reqs[i].cost.total || 0;
     }
@@ -2278,21 +2279,49 @@ function computeBurnHours(hist, reqs, cfg = {}, tz = bhZone()) {
     for (let i = a; i < events.length && events[i].t <= to; i++) if (events[i].a !== acct) return true;
     return false;
   };
+  // local hour/day of a request, cached per 15 minutes (every time zone offset is a multiple of 15 minutes)
+  const qCache = new Map();
+  const partsAt = (ms) => { const q = Math.floor(ms / 9e5); let v = qCache.get(q); if (!v) qCache.set(q, v = bhParts(q * 9e5, tz)); return v; };
+  // Sessions, not single intervals: the weekly % moves in whole points, so one interval's rate is mostly rounding.
+  // Per account, consecutive snapshots (running max: the % only rises within a week, but snapshots flicker 82, 81, 82)
+  // form a stretch while they are at most MAX_GAP apart with no other account's snapshot near them, cut into chunks of
+  // up to CHUNK_MS. A chunk's NET rise over its whole cost is its rate.
+  const chunks = [];
   for (const [acct, raw] of by) {
-    // the weekly % only rises within a week, but snapshots flicker by 1 (82, 81, 82): use the running max, or every
-    // flicker back up is counted as new usage and busy hours (more snapshots) look heavier than they are
     let hi = -Infinity;
     const rows = raw.map((x) => { hi = Math.max(hi, x.p); return { t: x.t, p: hi }; });
+    let s0 = 0;
+    const close = (i) => {
+      const a = rows[s0], b = rows[i];
+      if (i > s0 && b.t > a.t) {
+        const cost = costBetween(a.t, b.t);
+        if (cost !== null && cost >= BH.MIN_CHUNK_COST) chunks.push({ t1: a.t, t2: b.t, dp: b.p - a.p, cost });
+      }
+      s0 = i;
+    };
     for (let i = 1; i < rows.length; i++) {
-      const a = rows[i - 1], b = rows[i], dp = b.p - a.p;
-      if (dp < 0 || b.t - a.t > BH.MAX_GAP_MS || b.t <= a.t) continue;
-      if (otherNear(acct, a.t, b.t)) continue;
-      const cost = costBetween(a.t, b.t);
-      if (cost === null || !(cost > 0)) continue;
-      const pt = bhParts((a.t + b.t) / 2, tz), g = agg[pt.h];
-      g.dp += dp; g.cost += cost; g.n++;
-      totDp += dp; totCost += cost; days.add(pt.day);
+      const a = rows[i - 1], b = rows[i];
+      if (b.t - a.t > BH.MAX_GAP_MS || b.t <= a.t || otherNear(acct, a.t, b.t)) { close(i - 1); s0 = i; continue; }
+      if (b.t - rows[s0].t > BH.CHUNK_MS) close(i - 1);
     }
+    close(rows.length - 1);
+  }
+  // a chunk whose weekly % rose far faster than usual for the work on this machine was mostly used elsewhere
+  // (claude.ai, another device); one far slower mostly paid for work on another account at the same time. Neither
+  // says anything about the hour, so both are dropped (more than OUTLIER_X times off the median).
+  const rates = chunks.map((c) => c.dp / c.cost).sort((x, y) => x - y);
+  const median = rates.length ? rates[Math.floor(rates.length / 2)] : 0;
+  for (const c of chunks) {
+    if (median > 0 && (c.dp / c.cost > BH.OUTLIER_X * median || c.dp / c.cost < median / BH.OUTLIER_X)) continue;
+    // spread the chunk over the local hours its work fell in, by cost
+    const per = new Map();
+    for (let i = firstAt(c.t1); i < reqs.length && reqs[i].ts < c.t2; i++) {
+      const pt = partsAt(reqs[i].ts), w = (reqs[i].cost && reqs[i].cost.total) || 0;
+      per.set(pt.h, (per.get(pt.h) || 0) + w);
+      if (w > 0) days.add(pt.day);
+    }
+    for (const [h, w] of per) { if (!(w > 0)) continue; const g = agg[h]; g.dp += c.dp * w / c.cost; g.cost += w; g.n++; }
+    totDp += c.dp; totCost += c.cost;
   }
   base.days = days.size;
   if (days.size < minDays || !(totCost > 0) || !(totDp > 0)) return { ...base, ok: false, reason: 'need more data' };

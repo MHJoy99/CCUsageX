@@ -27,7 +27,7 @@ const pulse = require('../public/widget.js');
 const MIN = 60e3, HOUR = 3600e3;
 const BASE = Date.UTC(2026, 9, 1); // Thu 1 Oct 2026 00:00 UTC; the tests use tz "UTC" so hours are exact
 
-// Account A (reset 1000): 08:00-12:00 at 0.1 %/$ and 21:00-01:00 at 0.2 %/$ every day, a point every 30 minutes, $3 per interval.
+// Account A (reset 1000): 08:00-12:00 at 0.01 %/$ and 21:00-01:00 at 0.02 %/$ every day, a point every 30 minutes, $30 per interval.
 // Account B (reset 2000): one point a day at 10:10 (inside A's morning) plus a 5h row with the same t.
 function fixture(days) {
   const hist = [], reqs = [];
@@ -35,14 +35,14 @@ function fixture(days) {
   const seg = (d, h0, h1, rate) => {
     const t0 = BASE + d * 24 * HOUR + h0 * HOUR, t1 = BASE + d * 24 * HOUR + h1 * HOUR;
     for (let t = t0; t <= t1; t += 30 * MIN) {
-      if (t > t0) pA += 3 * rate;
+      if (t > t0) pA += 30 * rate;
       hist.push({ t, w: '7d', p: pA, r: 1000 }, { t, w: '5h', p: pA % 100, r: 5000 });
-      if (t < t1) for (let k = 0; k < 6; k++) reqs.push({ ts: t + k * 5 * MIN, cost: { total: 0.5 } });
+      if (t < t1) for (let k = 0; k < 6; k++) reqs.push({ ts: t + k * 5 * MIN, cost: { total: 5 } });
     }
   };
   for (let d = 0; d < days; d++) {
-    seg(d, 8, 12, 0.1);
-    seg(d, 21, 25, 0.2);
+    seg(d, 8, 12, 0.01);
+    seg(d, 21, 25, 0.02);
     const tb = BASE + d * 24 * HOUR + 10 * HOUR + 10 * MIN;
     hist.push({ t: tb, w: '7d', p: 40 + d, r: 2000 }, { t: tb, w: '5h', p: 10, r: 6000 });
   }
@@ -71,18 +71,20 @@ test('burn-hours: finds the known heavy window, wrapping past midnight', () => {
   assert.deepEqual(o.ranges.map((r) => [r.start, r.end]), [['21:00', '01:00']]);
   assert.ok(o.ranges[0].ratio > 1.2 && o.ranges[0].ratio < 1.5, 'ratio ' + o.ranges[0].ratio);
   assert.equal(o.hours.length, 24);
-  assert.ok(o.baselinePctPer100 > 10 && o.baselinePctPer100 < 20, 'baseline ' + o.baselinePctPer100);
+  assert.ok(o.baselinePctPer100 > 1 && o.baselinePctPer100 < 2, 'baseline ' + o.baselinePctPer100);
   // an hour with no data of its own is never flagged, however its neighbours look
   assert.equal(o.hours[20].n, 0);
   assert.ok(!o.ranges.some((r) => r.start === '20:00'));
 });
 
-test('burn-hours: intervals near another account are skipped, never mixed', () => {
+test('burn-hours: work near another account is skipped, never mixed', () => {
   const { hist, reqs } = fixture(5);
   const o = srv.computeBurnHours(hist, reqs, {}, 'UTC');
-  assert.equal(o.hours[11].n, 10); // two intervals a day, nothing near B
-  assert.equal(o.hours[9].n, 5);   // 09:30-10:00 reaches B's 10:10 point (15 min guard) every day
-  assert.equal(o.hours[10].n, 5);  // so does 10:00-10:30
+  // B's 10:10 point (15 min guard) cuts A's morning: 09:30-10:30 is never counted, the rest is, $30 per half hour
+  assert.equal(o.hours[9].cost, 150);  // only 09:00-09:30, five days
+  assert.equal(o.hours[10].cost, 150); // only 10:30-11:00
+  assert.equal(o.hours[11].cost, 300);
+  assert.equal(o.hours[10].pctPer100, 1); // A's morning rate (0.01 %/$), nothing of B mixed in
 });
 
 test('burn-hours: not enough days -> ok:false, need more data', () => {
@@ -198,18 +200,18 @@ test('GET /api/burn-hours and the widget files', async () => {
   } finally { server.close(); }
 });
 
-test('burn-hours: an interval with an unpriced request is skipped, not counted as $0', () => {
+test('burn-hours: a stretch with an unpriced request is skipped, not counted as $0', () => {
   const { hist, reqs } = fixture(5);
   const base = srv.computeBurnHours(hist, reqs, {}, 'UTC');
-  assert.equal(base.hours[8].n, 10);
-  assert.equal(base.hours[8].cost, 30);
-  // one request in day 0's 08:00-08:30 interval has no price (unknown model)
+  assert.equal(base.hours[8].cost, 300);
+  assert.equal(base.hours[9].cost, 150);
+  // one request in day 0's 08:00-09:30 stretch has no price (unknown model)
   reqs.find((r) => r.ts === BASE + 8 * HOUR + 5 * MIN).cost = null;
   const o = srv.computeBurnHours(hist, reqs, {}, 'UTC');
   assert.equal(o.ok, true);
-  assert.equal(o.hours[8].n, 9);      // that interval is gone, the other nine stay
-  assert.equal(o.hours[8].cost, 27);  // and its $3 is not in the total either
-  assert.equal(o.hours[11].n, 10);    // other hours untouched
+  assert.equal(o.hours[8].cost, 240);  // day 0's stretch is gone, its $60 at 08:00-09:00 is not in the total
+  assert.equal(o.hours[9].cost, 120);  // nor its $30 at 09:00-09:30
+  assert.equal(o.hours[11].cost, 300); // other stretches untouched
 });
 
 test('burn-hours: manual start/end must be HH:MM with hours < 24 and minutes < 60', () => {
@@ -271,16 +273,16 @@ test.after(() => {
 });
 
 test('burn-hours: a snapshot flickering down and back up is not counted as new usage', () => {
-  // one account at a flat 0.1 %/$ all day; from 21:00 every interval also gets a flicker (p-1 at +10 min, p at +20 min)
+  // one account at a flat 0.01 %/$ all day; from 21:00 every interval also gets a flicker (p-1 at +10 min, p at +20 min)
   const hist = [], reqs = [];
   let p = 0;
   for (let d = 0; d < 4; d++) {
     for (let h = 0; h < 24; h += 0.5) {
       const t = BASE + d * 24 * HOUR + h * HOUR;
-      p += 3 * 0.1;
+      p += 30 * 0.01;
       hist.push({ t, w: '7d', p, r: 1000 });
       if (h >= 21) hist.push({ t: t + 10 * MIN, w: '7d', p: p - 1, r: 1000 }, { t: t + 20 * MIN, w: '7d', p, r: 1000 });
-      for (let k = 0; k < 6; k++) reqs.push({ ts: t + k * 5 * MIN, cost: { total: 0.5 } });
+      for (let k = 0; k < 6; k++) reqs.push({ ts: t + k * 5 * MIN, cost: { total: 5 } });
     }
   }
   hist.push({ t: BASE + 4 * 24 * HOUR, w: '7d', p: p + 0.3, r: 1000 }); // closes the last half hour
@@ -288,4 +290,17 @@ test('burn-hours: a snapshot flickering down and back up is not counted as new u
   assert.equal(o.ok, true);
   assert.deepEqual(o.ranges, []);
   assert.ok(Math.abs(o.hours[22].pctPer100 - o.hours[10].pctPer100) < 0.05, `night ${o.hours[22].pctPer100} vs day ${o.hours[10].pctPer100}`);
+});
+
+test('burn-hours: a stretch whose weekly % jumped with almost no local work is dropped', () => {
+  const { hist, reqs } = fixture(5);
+  // account C every afternoon: +10 points for $60 of local work (used somewhere else at the same time)
+  for (let d = 0; d < 5; d++) {
+    for (let k = 0; k <= 2; k++) hist.push({ t: BASE + d * 24 * HOUR + 15 * HOUR + k * 30 * MIN, w: '7d', p: d * 20 + k * 5, r: 3000 });
+    for (let k = 0; k < 12; k++) reqs.push({ ts: BASE + d * 24 * HOUR + 15 * HOUR + k * 5 * MIN, cost: { total: 5 } });
+  }
+  reqs.sort((a, b) => a.ts - b.ts);
+  const o = srv.computeBurnHours(hist, reqs, { mode: 'auto', minDays: 3 }, 'UTC');
+  assert.equal(o.hours[15].cost, 0);
+  assert.deepEqual(o.ranges.map((r) => r.start), ['21:00']);
 });

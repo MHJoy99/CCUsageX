@@ -533,11 +533,13 @@ every 15 s. Every event has a monotonic `id:`; reconnecting with `Last-Event-ID`
 
 ### `GET /api/burn-hours`
 
-Your heavy hours, for the desktop widget. Per account, consecutive weekly-percentage snapshots (the running maximum
-within the week, so a snapshot flickering down and back up adds nothing; at most 3 hours
-apart, no other account's snapshot within 15 minutes) are paired with the API-equivalent cost of the requests between
-them and filed under the local hour of the interval's midpoint. Each hour is smoothed over three hours; an hour is
-heavy when its percent-per-dollar is at least `widget.heavyHours.threshold` (default 1.15) times the baseline.
+Your heavy hours, for the desktop widget. Per account, consecutive weekly-percentage snapshots (running maximum within
+the week, at most 3 hours apart, no other account's snapshot within 15 minutes) form stretches cut into pieces of up
+to 3 hours with at least $20 of API-equivalent work. A piece's rate is its net rise over its cost; pieces more than
+3 times off the median rate are dropped (use elsewhere, or another account's work). Kept pieces are spread over the
+local hours their work fell in, by cost. Each hour is smoothed over three hours; an hour is heavy when its
+percent-per-dollar is at least `widget.heavyHours.threshold` (default 1.15) times the baseline and the 3-hour window
+holds at least $50 of work.
 In `auto` mode only, it needs `minDays` (default 3) distinct days; `manual` and `off` ignore `minDays`. Fields: `ok`,
 `mode` (`auto`, `manual`, `off`), `timeZone`, `days`,
 `minDays`, `baselinePctPer100`, `hours[24]`, `ranges[{start,end,ratio}]`, `reason`, and `usPeak` (the informational

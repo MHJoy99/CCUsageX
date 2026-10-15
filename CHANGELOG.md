@@ -5,6 +5,15 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-10-16
+
+### Changed
+
+- Heavy hours are measured over stretches of up to 3 hours (at least $20 of work each) using the net rise in weekly
+  percent, instead of single snapshot pairs whose rate was mostly whole-point rounding. Stretches more than 3 times
+  faster or slower than your median are dropped, since use outside the machine or another account's work moved
+  them. An hour needs $50 of work in its 3-hour window before it can be flagged.
+
 ## [1.4.1] - 2026-10-16
 
 ### Fixed

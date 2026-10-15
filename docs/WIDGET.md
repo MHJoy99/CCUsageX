@@ -81,12 +81,16 @@ from two things it already has, and sends nothing anywhere:
    Snapshots can flicker by a point (82, 81, 82), so it uses the highest value seen so far that week.
 2. **The API-equivalent cost** of the requests you made between two snapshots.
 
-For every pair of consecutive weekly-percentage snapshots of the same account (not more than 3 hours apart, and
-with no other account's snapshot within 15 minutes), it records `percent used` and `cost` and files them under the
-**local hour** in the middle of the interval. For each hour of the day it then computes percent per dollar. Each hour
-is smoothed with its two neighbours (a 3-hour window), so one noisy hour cannot make a band. The baseline is your
-overall percent per dollar. An hour is heavy when its smoothed rate is **at least 1.15 times the baseline**, and runs
-of heavy hours become the band(s). Windows with almost no spend are ignored.
+It works in **stretches**, not single snapshots, because the weekly percentage moves in whole points and one half
+hour's rate is mostly rounding. Per account, consecutive snapshots form a stretch while they are at most 3 hours
+apart and no other account's snapshot is within 15 minutes; a stretch is cut into pieces of up to 3 hours. Each
+piece needs at least $20 of API-equivalent work (about one and a half weekly points), and its rate is its **net**
+rise in weekly percent over its whole cost. A piece more than 3 times faster or slower than your median piece is
+dropped: its weekly percentage was mostly moved by use outside this machine (claude.ai, another device) or paid for
+work on another account at the same time. Each kept piece is spread over the **local hours** its work fell in, by
+cost. For each hour of the day it then computes percent per dollar, smoothed with its two neighbours (a 3-hour
+window). The baseline is your overall percent per dollar. An hour is heavy when its smoothed rate is **at least 1.15
+times the baseline** and the 3-hour window holds at least $50 of work; runs of heavy hours become the band(s).
 
 It needs **at least 3 distinct days** of paired data (`minDays`). Before that the widget says it needs more data. The
 raw numbers are in `GET /api/burn-hours` (`mode`, `days`, `baselinePctPer100`, per-hour `pctPer100`, `ranges`).

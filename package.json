@@ -1,6 +1,6 @@
 {
   "name": "ccusagex",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Local, zero-dependency web dashboard for Claude Code usage: every prompt, request, model, token, cache hit and API-equivalent cost, read from Claude Code's own logs.",
   "main": "server.js",
   "bin": {
