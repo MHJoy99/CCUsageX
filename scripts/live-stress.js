@@ -9,7 +9,7 @@
 //                                            (queue-operation enqueue + queued_command attachment), end_turn at the end
 //   <session>/subagents/agent-<id>.jsonl     helper transcript: 2-8 tool calls, then a SubagentHandback (completed)
 //   <session>/subagents/agent-<id>.meta.json {agentType, description, toolUseId, requestShape:"background", model}
-// Record shapes follow scripts/demo-data.js and .team/LIVE-FIX.md.
+// Record shapes follow scripts/demo-data.js and docs/ARCHITECTURE.md.
 //
 // --duration is the scenario length in SIMULATED seconds; a simulated second takes 1/--speed real seconds.
 // Endings: ~10% of the non-stalled helpers are killed (notification, no handback); 2 helpers never finish

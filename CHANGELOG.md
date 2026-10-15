@@ -5,6 +5,30 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-10-16
+
+### Fixed
+
+- Heavy hours no longer count a weekly snapshot that flickers down and back up (82, 81, 82) as new usage. Busy hours
+  have more snapshots, so this made them look heavier than they were. The weekly percentage now uses its running
+  maximum within each week.
+- After a hard stop and restart, a request whose final usage line had not been saved yet now picks it up when the
+  transcript is re-read, instead of keeping the stream-start output count.
+- Edits to the `widget` block in `config.json` apply without restarting CCUsageX.
+- Heavy hours skip any interval whose model has no price, so unpriced requests do not skew the measured band.
+- Heavy hours and the US band validate `timeZone` and the manual range in `config.json`. Invalid values are reported
+  instead of breaking the widget.
+- The widget survives a bad time zone and network timeouts.
+- The reset countdown is correct on a day when daylight saving time starts or ends.
+- The installer removes only a WebView2 plugin it installed itself, and places the skin near the top-right of the
+  primary screen on first run.
+
+### Changed
+
+- README covers the installer on Windows PowerShell 5.1 and PowerShell 7.
+- Docs link the sources of the plan-change dates, state that `minDays` applies only to `auto` mode, and use synthetic
+  values in every example.
+
 ## [1.4.0] - 2026-10-15
 
 ### Added
@@ -24,6 +48,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The widget shows times in your computer's local time zone.
 - README, FAQ and architecture notes cover the widget.
+
 ## [1.3.1] - 2026-10-13
 
 ### Fixed

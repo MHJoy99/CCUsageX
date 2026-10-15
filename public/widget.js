@@ -77,9 +77,25 @@
     }
     return null;
   }
+  /* wall-clock time of an instant in a zone, written as if it were UTC (ms): the zone's own calendar day and clock */
+  var wallDtfCache = {};
+  function wallMs(ms, tz) {
+    var key = tz || '', f = wallDtfCache[key];
+    if (!f) f = wallDtfCache[key] = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz || undefined, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23'
+    });
+    var o = {}, ps = f.formatToParts(new Date(ms));
+    for (var i = 0; i < ps.length; i++) o[ps[i].type] = +ps[i].value;
+    return Date.UTC(o.year, o.month - 1, o.day, o.hour % 24, o.minute, o.second);
+  }
+  /* zone offset in ms at an instant: wall clock minus UTC */
+  function offsetMs(ms, tz) { return wallMs(ms, tz) - Math.floor(ms / 1000) * 1000; }
+  /* the instant of 00:00 on the zone's calendar day that holds ms. The offset is re-read at the candidate instant
+   * (twice), so a daylight-saving day that is 23 or 25 hours long still starts at its real local midnight. */
   function dayStartMs(ms, tz) {
-    var p = parts(ms, tz || undefined);
-    return Math.floor(ms / 1000) * 1000 - ((p.h * 60 + p.m) * 60 + p.s) * 1000;
+    var z = tz || undefined, w = new Date(wallMs(ms, z)), guess = Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate()), t = guess;
+    for (var i = 0; i < 2; i++) t = guess - offsetMs(t, z);
+    return t;
   }
   /* merged [startMin, endMin] intervals (minutes since local midnight) of one window inside the display day */
   function bandsOf(dayStart, w, spanMin) {
@@ -116,11 +132,33 @@
   function heavyWindows(ranges, tz) {
     return (ranges || []).map(function (r) { return { tz: tz, days: null, start: r.start, end: r.end }; });
   }
+  /* an IANA zone that Intl accepts (any other name throws inside parts() and would stop the widget) */
+  function validZone(tz) {
+    if (!tz || typeof tz !== 'string') return false;
+    try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch (e) { return false; }
+  }
+  /* a payload that names a zone Intl rejects is ignored as a whole */
+  function zonesOk(d) {
+    var us = d.usPeak;
+    if (us && typeof us === 'object' && us.timeZone && !validZone(us.timeZone)) return false;
+    if (d.ok && d.ranges && d.ranges.length && d.timeZone && !validZone(d.timeZone)) return false;
+    return true;
+  }
+  /* can every window of a schedule be evaluated? (a malformed "HH:MM" throws in toMin(), a bad zone in parts()) */
+  function evaluates(cfg) {
+    try { inWindow(0, cfg.heavy); inWindow(0, cfg.official); return true; } catch (e) { return false; }
+  }
+  /* the schedule a /api/burn-hours payload gives on top of cfg, or null when the payload must not be used */
+  function scheduleFrom(cfg, d) {
+    if (!d || typeof d !== 'object' || !zonesOk(d)) return null;
+    var next = applySchedule(cfg, d);
+    return evaluates(next) ? next : null;
+  }
   /* what the widget should show as hours: apply a /api/burn-hours payload to a config (pure, returns a new cfg) */
   function applySchedule(cfg, d) {
     var o = {}, k;
     for (k in cfg) o[k] = cfg[k];
-    if (!d || typeof d !== 'object') return o;
+    if (!d || typeof d !== 'object' || !zonesOk(d)) return o;
     var us = d.usPeak;
     if (us && typeof us === 'object') {
       o.officialOn = us.enabled !== false;
@@ -164,6 +202,13 @@
 
   /* ================================== DOM / app ================================== */
   var Q = new URLSearchParams(location.search);
+  /* ?api= test hook: only an http(s) base is honoured (kept without a trailing slash); anything else means this page's own origin */
+  var apiBase = (function () {
+    var raw = Q.get('api');
+    if (!raw) return '';
+    try { var u = new URL(raw); if (u.protocol === 'http:' || u.protocol === 'https:') return u.href.replace(/\/+$/, ''); } catch (e) { /* not a URL */ }
+    return '';
+  })();
   var $ = function (id) { return document.getElementById(id); };
   var REDUCED = false;
   try { REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { /* ignore */ }
@@ -309,7 +354,7 @@
     // countdown
     var lab = '', val = '--', sub = '';
     if (nc) {
-      lab = nc.to === 'heavy' ? 'Heavy hours start in' : nc.to === 'usp' ? 'US busy hours start in' : 'Off-peak in';
+      lab = nc.to === 'heavy' ? 'Heavy hours start in' : st === 'heavy' ? 'Heavy hours end in' : nc.to === 'usp' ? 'US busy hours start in' : 'Off-peak in';
       var d = fmtDur(nc.at - ms);
       val = d.replace(/(\d+)([dhm])/g, '$1<small>$2</small>');
       sub = 'at ' + fmtAt(nc.at);
@@ -424,7 +469,7 @@
   var pollTimer = 0;
   function fetchLimits() {
     clearTimeout(pollTimer);
-    var base = Q.get('api') || '';
+    var base = apiBase;
     var ctl = ('AbortController' in window) ? new AbortController() : null;
     var to = setTimeout(function () { if (ctl) ctl.abort(); }, 8000);
     fetch(base + CONFIG.limitsUrl, { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
@@ -448,26 +493,37 @@
   /* heavy hours + US busy band from the server; the last good answer is cached so an offline/old server keeps the schedule */
   var SKEY = 'ccusagex.pulse.schedule.v1', schedTimer = 0;
   function useSchedule(d, persist) {
-    CONFIG = applySchedule(CONFIG, d); core.CONFIG = CONFIG;
+    var next = scheduleFrom(CONFIG, d);
+    if (!next) return false; // bad zone or malformed times: keep the current schedule and store nothing
+    CONFIG = next; core.CONFIG = CONFIG;
     if (persist && !Q.get('nostore')) { try { localStorage.setItem(SKEY, JSON.stringify(d)); } catch (e) { /* ignore */ } }
     scheduleChanged();
+    return true;
   }
   function fetchSchedule() {
     clearTimeout(schedTimer);
-    var base = Q.get('api') || '';
-    fetch(base + CONFIG.burnUrl, { cache: 'no-store' })
+    var ctl = ('AbortController' in window) ? new AbortController() : null;
+    var to = setTimeout(function () { if (ctl) ctl.abort(); }, 8000);
+    var delay = CONFIG.retryMs * 4; // retry sooner unless a valid payload arrives
+    fetch(apiBase + CONFIG.burnUrl, { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (d) {
         if (!d || typeof d !== 'object' || d.error) throw new Error('bad');
-        if (Q.get('heavy')) { var m = /^(dd:dd)-(dd:dd)$/.exec(Q.get('heavy')); if (m) d = Object.assign({}, d, { ok: true, mode: 'measured', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ranges: [{ start: m[1], end: m[2], ratio: 1.3 }] }); }
-        useSchedule(d, true);
-        schedTimer = setTimeout(fetchSchedule, CONFIG.scheduleMs);
+        if (Q.get('heavy')) { var m = /^(\d\d:\d\d)-(\d\d:\d\d)$/.exec(Q.get('heavy')); if (m) d = Object.assign({}, d, { ok: true, mode: 'measured', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ranges: [{ start: m[1], end: m[2], ratio: 1.3 }] }); }
+        if (useSchedule(d, true)) delay = CONFIG.scheduleMs;
       })
-      .catch(function () { schedTimer = setTimeout(fetchSchedule, CONFIG.retryMs * 4); }); // old server (404) or offline: keep the cached/built-in schedule
+      .catch(function () { /* old server (404), offline or a bad payload: keep the cached/built-in schedule */ })
+      .finally(function () { clearTimeout(to); schedTimer = setTimeout(fetchSchedule, delay); });
   }
   function loadCachedSchedule() {
     if (Q.get('nostore')) return;
-    try { var raw = localStorage.getItem(SKEY); if (raw) CONFIG = applySchedule(CONFIG, JSON.parse(raw)); core.CONFIG = CONFIG; } catch (e) { /* ignore */ }
+    var raw = null;
+    try { raw = localStorage.getItem(SKEY); } catch (e) { return; }
+    if (!raw) return;
+    var next = null;
+    try { next = scheduleFrom(CONFIG, JSON.parse(raw)); } catch (e) { next = null; }
+    if (next) { CONFIG = next; core.CONFIG = CONFIG; return; }
+    try { localStorage.removeItem(SKEY); } catch (e) { /* ignore */ } // unusable cached schedule: discard it
   }
   function renderFooter() {
     var el = $('updated');
@@ -537,7 +593,7 @@
     if (!m) return;
     S.mode = m; saveSettings(); syncSettingsUI(); applyVisibility();
   });
-  function dashUrl() { return (Q.get('api') || location.origin) + CONFIG.dashboardUrl; }
+  function dashUrl() { return (apiBase || location.origin) + CONFIG.dashboardUrl; }
   $('open').addEventListener('click', function () {
     if (typeof RainmeterAPI !== 'undefined') { try { RainmeterAPI.Bang('["' + dashUrl() + '"]'); return; } catch (e) { /* fall through */ } }
     window.open(dashUrl(), '_blank');
@@ -590,7 +646,7 @@
   }, 60000);
   loadCachedSchedule();
   applyVisibility();
-  renderPeak(true);
+  try { renderPeak(true); } catch (e) { /* a schedule that cannot render must not stop the fetches below (the 15 s tick retries) */ }
   fetchLimits();
   fetchSchedule();
   // idle cost: nothing animates continuously; a 15 s tick moves the hand, and while the window is hidden/minimised no work is done

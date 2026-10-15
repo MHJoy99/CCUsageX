@@ -86,7 +86,7 @@
   }
 
   /* ================================================================== Live simulator (fictional, deterministic-but-lively)
-     Replaces EventSource('/api/stream') and answers /api/live/state with the same contract as server.js (see .team/LIVE.md):
+     Replaces EventSource('/api/stream') and answers /api/live/state with the same contract as server.js (see docs/ARCHITECTURE.md):
      a main agent working through a fictional prompt (thinking, text, tool calls, subagents, requests, turn_end), looping forever. */
   var Sim = (function () {
     var seed = 20260601;
@@ -412,7 +412,7 @@
   })();
 
   /* ================================================================== Plan limits simulator (fictional)
-     Same shape as server.js GET /api/limits (see .team/LIMITS.md). Scenario via ?limits=ok|high|limit|stale|nosub|none|reset|5h
+     Same shape as server.js GET /api/limits (see docs/ARCHITECTURE.md). Scenario via ?limits=ok|high|limit|stale|nosub|none|reset|5h
      (default "ok"): usage creeps up while the page is open, the reset countdowns are real. */
   var Lim = (function () {
     var H = 3600000, T0 = Date.now();

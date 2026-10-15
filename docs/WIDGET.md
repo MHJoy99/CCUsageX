@@ -67,9 +67,10 @@ display options. Time values are 24-hour `HH:MM`.
 | `widget.heavyHours.minDays` | `3` | Days of data needed before `auto` shows anything. |
 | `widget.heavyHours.threshold` | `1.15` | An hour is heavy when it burns at least this many times your average. |
 
-All times on the widget are shown in your computer's local time zone. The server re-reads the block while running, so
-edit, save, and the widget updates within a minute. Rainmeter variables live in the first lines of the installed
-`ClaudePulse.ini`: `Port` (CCUsageX port) and `W`/`H` (starting size; the page resizes the window itself).
+All times on the widget are shown in your computer's local time zone. Edits to `config.json` apply without restarting
+CCUsageX. The widget refreshes its heavy-hours schedule every 10 minutes (or reload the widget). Rainmeter variables
+live in the `[Variables]` section of the installed `ClaudePulse.ini`: `Port` (the CCUsageX port, set by
+`scripts\install-widget.ps1 -Port`) and `W`/`H` (starting size; the page resizes the window itself).
 
 ## How heavy hours are measured
 
@@ -77,6 +78,7 @@ edit, save, and the widget updates within a minute. Rainmeter variables live in 
 from two things it already has, and sends nothing anywhere:
 
 1. **The weekly percentage** from your plan-limit snapshots (the status line or the `/usage` probe), per account.
+   Snapshots can flicker by a point (82, 81, 82), so it uses the highest value seen so far that week.
 2. **The API-equivalent cost** of the requests you made between two snapshots.
 
 For every pair of consecutive weekly-percentage snapshots of the same account (not more than 3 hours apart, and
@@ -93,7 +95,8 @@ so the `/usage` probe collects them).
 
 ### The US busy-hours band
 
-On 2026-03-26 Anthropic said 5-hour limits would drain faster on weekdays 5-11am Pacific. On 2026-05-06 it removed
+On 2026-03-26 Anthropic said 5-hour limits would drain faster on weekdays 5-11am Pacific
+([Business Insider](https://www.businessinsider.com/claude-usage-caps-changes-popularity-anthropic-2026-3)). On 2026-05-06 it removed
 that peak-hour reduction for Pro and Max ([announcement](https://www.anthropic.com/news/higher-limits-spacex)), so
 the band is **informational** and the widget never claims it changes your limits. Your measured heavy hours are the
 ones to trust. Hide the US band with `widget.usPeak.enabled: false`.

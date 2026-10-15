@@ -533,11 +533,13 @@ every 15 s. Every event has a monotonic `id:`; reconnecting with `Last-Event-ID`
 
 ### `GET /api/burn-hours`
 
-Your heavy hours, for the desktop widget. Per account, consecutive weekly-percentage snapshots (at most 3 hours
+Your heavy hours, for the desktop widget. Per account, consecutive weekly-percentage snapshots (the running maximum
+within the week, so a snapshot flickering down and back up adds nothing; at most 3 hours
 apart, no other account's snapshot within 15 minutes) are paired with the API-equivalent cost of the requests between
 them and filed under the local hour of the interval's midpoint. Each hour is smoothed over three hours; an hour is
 heavy when its percent-per-dollar is at least `widget.heavyHours.threshold` (default 1.15) times the baseline.
-Needs `minDays` (default 3) distinct days. Fields: `ok`, `mode` (`auto`, `manual`, `off`), `timeZone`, `days`,
+In `auto` mode only, it needs `minDays` (default 3) distinct days; `manual` and `off` ignore `minDays`. Fields: `ok`,
+`mode` (`auto`, `manual`, `off`), `timeZone`, `days`,
 `minDays`, `baselinePctPer100`, `hours[24]`, `ranges[{start,end,ratio}]`, `reason`, and `usPeak` (the informational
 band from `widget.usPeak`). Settings are in the `widget` block of `config.json`; see [WIDGET.md](WIDGET.md).
 ### Static files
@@ -630,8 +632,8 @@ Max subscribers, the object has a `rate_limits` field after the first API respon
 
 ```json
 "rate_limits": {
-  "five_hour": { "used_percentage": 23.5, "resets_at": 1738425600 },
-  "seven_day": { "used_percentage": 41.2, "resets_at": 1738857600 }
+  "five_hour": { "used_percentage": 20, "resets_at": 1767243600 },
+  "seven_day": { "used_percentage": 40, "resets_at": 1767744000 }
 }
 ```
 
@@ -668,7 +670,7 @@ must finish in about 100 ms. A non-zero exit or no output blanks the status line
    cost?, context_window? }`. It appends a line to `limits/history.jsonl` only when a percentage or reset time changed:
    `{ t, w: "5h" | "7d" | "spend", p, r }`. The file is capped at about 5 MB. When it grows past that, the newest half is
    kept. The helper then prints one status line for Claude Code's status bar, such as
-   `Opus 5.5 · 5h ▰▰▱▱▱ 23% ↻3:45pm · 7d 41% ↻Thu · ctx 9%`. It uses plain ASCII characters on a
+   `Opus 5.5 · 5h ▰▱▱▱▱ 20% ↻3:45pm · 7d 40% ↻Thu · ctx 9%`. It uses plain ASCII characters on a
    terminal that is not UTF-8 (or with `CCU_ASCII=1`), and no colour when `NO_COLOR` is set. Values of 90% or more are shown in red. With `--chain "<command>"`, it passes stdin to an existing
    status line and prints that line's output instead.
 2. **Server (`server.js`).** Watches `limits/`. It serves the snapshot as `GET /api/limits`, pushes a `limits` event on
@@ -692,20 +694,20 @@ All times are epoch **milliseconds**; percentages are 0–100.
   "reason": null,
   "stale": false,
   "source": "statusline",
-  "updatedAt": 1791689408354,
-  "now": 1791689409456,
+  "updatedAt": 1767229200000,
+  "now": 1767229201000,
   "sessions": 1,
   "activeSessions": 1,
   "windows": {
     "five_hour": {
-      "usedPct": 28, "resetsAt": 1791696605000, "windowMs": 18000000, "startedAt": 1791678605000,
-      "elapsedPct": 60.0, "burnPerHour": 2.5, "projectedPctAtReset": 33, "projectedHitAt": null,
-      "willExceed": false, "status": "ok", "updatedAt": 1791689408354,
-      "history": [{ "t": 1791689407007, "p": 20 }, { "t": 1791689408354, "p": 28 }]
+      "usedPct": 40, "resetsAt": 1767243600000, "windowMs": 18000000, "startedAt": 1767225600000,
+      "elapsedPct": 20.0, "burnPerHour": 5.0, "projectedPctAtReset": 60, "projectedHitAt": null,
+      "willExceed": false, "status": "ok", "updatedAt": 1767229200000,
+      "history": [{ "t": 1767225600000, "p": 35 }, { "t": 1767229200000, "p": 40 }]
     },
     "seven_day": { "…": "same shape, windowMs 604800000" }
   },
-  "reset": { "five_hour": 1791696605000 }
+  "reset": { "five_hour": 1767207600000 }
 }
 ```
 

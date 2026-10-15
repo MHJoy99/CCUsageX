@@ -14,6 +14,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-widget-'));
 process.env.CLAUDE_CONFIG_DIR = path.join(TMP, 'claude');
 process.env.CCU_DATA_DIR = path.join(TMP, 'data');
 process.env.CCU_START_DATE = '2026-01-01';
+// the widget block is re-read from a temp copy, never from the repo's config.json
+const WIDGET_FILE = path.join(TMP, 'config.json');
+process.env.CCU_WIDGET_CONFIG = WIDGET_FILE;
+fs.copyFileSync(path.join(__dirname, '..', 'config.json'), WIDGET_FILE);
 delete process.env.CCU_LIMITS_PROBE;
 fs.mkdirSync(path.join(TMP, 'claude', 'projects'), { recursive: true });
 fs.mkdirSync(path.join(TMP, 'data', 'limits'), { recursive: true });
@@ -44,6 +48,17 @@ function fixture(days) {
   }
   reqs.sort((a, b) => a.ts - b.ts);
   return { hist, reqs };
+}
+
+// writes the widget block of the temp config (starting from the repo's config.json) and moves its mtime forward,
+// so two edits inside one clock tick still count as two changes
+let widgetBump = 0;
+function setWidget(mutate) {
+  const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
+  mutate(cfg.widget);
+  fs.writeFileSync(WIDGET_FILE, JSON.stringify(cfg, null, 2));
+  const when = Date.now() / 1000 + ++widgetBump;
+  fs.utimesSync(WIDGET_FILE, when, when);
 }
 
 test('burn-hours: finds the known heavy window, wrapping past midnight', () => {
@@ -183,8 +198,94 @@ test('GET /api/burn-hours and the widget files', async () => {
   } finally { server.close(); }
 });
 
+test('burn-hours: an interval with an unpriced request is skipped, not counted as $0', () => {
+  const { hist, reqs } = fixture(5);
+  const base = srv.computeBurnHours(hist, reqs, {}, 'UTC');
+  assert.equal(base.hours[8].n, 10);
+  assert.equal(base.hours[8].cost, 30);
+  // one request in day 0's 08:00-08:30 interval has no price (unknown model)
+  reqs.find((r) => r.ts === BASE + 8 * HOUR + 5 * MIN).cost = null;
+  const o = srv.computeBurnHours(hist, reqs, {}, 'UTC');
+  assert.equal(o.ok, true);
+  assert.equal(o.hours[8].n, 9);      // that interval is gone, the other nine stay
+  assert.equal(o.hours[8].cost, 27);  // and its $3 is not in the total either
+  assert.equal(o.hours[11].n, 10);    // other hours untouched
+});
+
+test('burn-hours: manual start/end must be HH:MM with hours < 24 and minutes < 60', () => {
+  const manual = (start, end) => srv.computeBurnHours([], [], { mode: 'manual', manual: { start, end } }, 'UTC');
+  for (const [s, e] of [['25:00', '03:00'], ['24:00', '03:00'], ['21:00', '03:60'], ['21:75', '03:00'], ['21', '03:00'], ['21:00', ''], ['', ''], ['x', 'y']]) {
+    const o = manual(s, e);
+    assert.equal(o.ok, false, `${s} - ${e}`);
+    assert.equal(o.reason, 'invalid manual range', `${s} - ${e}`);
+    assert.deepEqual(o.ranges, []);
+  }
+  assert.equal(srv.computeBurnHours([], [], { mode: 'manual' }, 'UTC').reason, 'invalid manual range');
+  const edge = manual('23:59', '00:00');
+  assert.equal(edge.ok, true);
+  assert.deepEqual(edge.ranges, [{ start: '23:59', end: '00:00', ratio: null }]);
+  assert.deepEqual(manual('9:05', '10:00').ranges, [{ start: '09:05', end: '10:00', ratio: null }]);
+});
+
+test('usPeak.timeZone: an unknown zone falls back to America/Los_Angeles with a warning', () => {
+  setWidget((w) => { w.usPeak.timeZone = 'Mars/Olympus_Mons'; });
+  let o = srv.burnHoursPayload();
+  assert.equal(o.usPeak.timeZone, 'America/Los_Angeles');
+  assert.equal(o.usPeak.label, 'US busy hours'); // the rest of the band is kept
+  assert.match(o.warning, /Mars\/Olympus_Mons/);
+  setWidget((w) => { w.usPeak.timeZone = 'Asia/Dhaka'; });
+  o = srv.burnHoursPayload();
+  assert.equal(o.usPeak.timeZone, 'Asia/Dhaka');
+  assert.equal(o.warning, undefined);
+});
+
+test('config.json widget edits apply without a restart (mtime reload, memo invalidated)', async () => {
+  const server = srv.createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const burn = () => new Promise((resolve, reject) => http.get({ port, path: '/api/burn-hours', host: '127.0.0.1' }, (res) => {
+    let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => resolve(JSON.parse(b)));
+  }).on('error', reject));
+  const manualAt = (start, end) => setWidget((w) => { w.heavyHours.mode = 'manual'; w.heavyHours.manual = { start, end }; });
+  try {
+    manualAt('21:00', '03:00');
+    assert.deepEqual((await burn()).ranges, [{ start: '21:00', end: '03:00', ratio: null }]);
+    // same minute and same data: only the file's new mtime can make the response change
+    manualAt('08:00', '10:30');
+    assert.deepEqual((await burn()).ranges, [{ start: '08:00', end: '10:30', ratio: null }]);
+    manualAt('08:00', '25:30');
+    const bad = await burn();
+    assert.equal(bad.ok, false);
+    assert.equal(bad.reason, 'invalid manual range');
+    setWidget((w) => { w.usPeak.timeZone = 'Europe/Paris'; });
+    const paris = await burn();
+    assert.equal(paris.usPeak.timeZone, 'Europe/Paris');
+    assert.equal(paris.warning, undefined);
+  } finally { server.close(); }
+});
+
 test.after(() => {
   try { if (srv.stopLive) srv.stopLive(); } catch { /* ignore */ }
   fs.rmSync(TMP, { recursive: true, force: true });
   setTimeout(() => process.exit(), 50).unref();
+});
+
+test('burn-hours: a snapshot flickering down and back up is not counted as new usage', () => {
+  // one account at a flat 0.1 %/$ all day; from 21:00 every interval also gets a flicker (p-1 at +10 min, p at +20 min)
+  const hist = [], reqs = [];
+  let p = 0;
+  for (let d = 0; d < 4; d++) {
+    for (let h = 0; h < 24; h += 0.5) {
+      const t = BASE + d * 24 * HOUR + h * HOUR;
+      p += 3 * 0.1;
+      hist.push({ t, w: '7d', p, r: 1000 });
+      if (h >= 21) hist.push({ t: t + 10 * MIN, w: '7d', p: p - 1, r: 1000 }, { t: t + 20 * MIN, w: '7d', p, r: 1000 });
+      for (let k = 0; k < 6; k++) reqs.push({ ts: t + k * 5 * MIN, cost: { total: 0.5 } });
+    }
+  }
+  hist.push({ t: BASE + 4 * 24 * HOUR, w: '7d', p: p + 0.3, r: 1000 }); // closes the last half hour
+  const o = srv.computeBurnHours(hist, reqs, { mode: 'auto', minDays: 3 }, 'UTC');
+  assert.equal(o.ok, true);
+  assert.deepEqual(o.ranges, []);
+  assert.ok(Math.abs(o.hours[22].pctPer100 - o.hours[10].pctPer100) < 0.05, `night ${o.hours[22].pctPer100} vs day ${o.hours[10].pctPer100}`);
 });

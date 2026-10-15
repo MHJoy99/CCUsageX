@@ -1,7 +1,7 @@
 /* CCUsageX - Plan limits (5-hour session + 7-day weekly window).
  * Data: GET /api/limits (+ SSE `event: limits` and `limits` inside /api/live/state, relayed by live.js via CCULimits.push()).
  * Source: Claude Code's documented /usage report (probed by the server every 2 min while the page is open), with the status
- * line as an optional faster source in terminal sessions. Same numbers as /usage; contract in .team/LIMITS.md.
+ * line as an optional faster source in terminal sessions. Same numbers as /usage; contract in docs/ARCHITECTURE.md.
  * Renders into every `[data-limits]` host (cards: "overview" / "live") and the header pill `[data-limits-pill]`.
  * Degrades gracefully: a missing endpoint (404) is shown as "not set up". Reduced-motion safe, no layout shift. */
 (function () {

@@ -390,23 +390,18 @@ function handleLine(line, fstate, file) {
     indexRequest(r);
     setPrompt(r, pid);
   } else {
-    if (replaying) { if (lv) livePend(r, lv, file); return; } // live-only re-read at startup: the store already has this request
+    if (replaying) { // live-only re-read at startup: the store already has this request. A hard stop can save the
+      // stream-start usage but not the final line, so the usage max runs again (idempotent); content stays as stored.
+      if (mergeUsage(r, u, msg, cw5m, cw1h)) { finalize(r); dirty = true; }
+      if (lv) livePend(r, lv, file);
+      return;
+    }
     if (ts < r.ts) { r.ts = ts; listDirty = true; }
     if (r.parentTs == null && o.parentUuid && fstate.uuids[o.parentUuid] != null) r.parentTs = fstate.uuids[o.parentUuid];
     if (!r.promptId && pid) setPrompt(r, pid);
   }
   if (ts > r.endTs) r.endTs = ts;
-  // Claude Code writes one line per content block; usage repeats (output_tokens grows while streaming) — keep the max.
-  r.input = Math.max(r.input, numOf(u.input_tokens));
-  r.output = Math.max(r.output, numOf(u.output_tokens));
-  r.cacheRead = Math.max(r.cacheRead, numOf(u.cache_read_input_tokens));
-  r.cacheWrite5m = Math.max(r.cacheWrite5m, cw5m);
-  r.cacheWrite1h = Math.max(r.cacheWrite1h, cw1h);
-  r.thinking = Math.max(r.thinking, numOf(u.output_tokens_details && u.output_tokens_details.thinking_tokens));
-  r.webSearch = Math.max(r.webSearch, numOf(u.server_tool_use && u.server_tool_use.web_search_requests));
-  r.webFetch = Math.max(r.webFetch, numOf(u.server_tool_use && u.server_tool_use.web_fetch_requests));
-  if (Array.isArray(u.iterations)) r.extraIter = Math.max(r.extraIter, u.iterations.filter((it) => it && it.type && it.type !== 'message').length);
-  if (msg.stop_reason) r.stopReason = msg.stop_reason;
+  mergeUsage(r, u, msg, cw5m, cw1h);
 
   const bi = o.apiBlockIndex;
   if (bi == null || !r.blk.includes(bi)) { // re-reading a rewritten file must not double-add content
@@ -427,6 +422,24 @@ function handleLine(line, fstate, file) {
   s.first = Math.min(s.first || ts, ts);
   s.last = Math.max(s.last || ts, ts);
   dirty = true;
+}
+
+// Claude Code writes one line per content block; usage repeats (output_tokens grows while streaming) — keep the max.
+// Returns true when anything changed.
+function mergeUsage(r, u, msg, cw5m, cw1h) {
+  const before = r.input + r.output + r.cacheRead + r.cacheWrite5m + r.cacheWrite1h + r.thinking + r.webSearch + r.webFetch + r.extraIter;
+  const stop = r.stopReason;
+  r.input = Math.max(r.input, numOf(u.input_tokens));
+  r.output = Math.max(r.output, numOf(u.output_tokens));
+  r.cacheRead = Math.max(r.cacheRead, numOf(u.cache_read_input_tokens));
+  r.cacheWrite5m = Math.max(r.cacheWrite5m, cw5m);
+  r.cacheWrite1h = Math.max(r.cacheWrite1h, cw1h);
+  r.thinking = Math.max(r.thinking, numOf(u.output_tokens_details && u.output_tokens_details.thinking_tokens));
+  r.webSearch = Math.max(r.webSearch, numOf(u.server_tool_use && u.server_tool_use.web_search_requests));
+  r.webFetch = Math.max(r.webFetch, numOf(u.server_tool_use && u.server_tool_use.web_fetch_requests));
+  if (Array.isArray(u.iterations)) r.extraIter = Math.max(r.extraIter, u.iterations.filter((it) => it && it.type && it.type !== 'message').length);
+  if (msg.stop_reason) r.stopReason = msg.stop_reason;
+  return r.stopReason !== stop || r.input + r.output + r.cacheRead + r.cacheWrite5m + r.cacheWrite1h + r.thinking + r.webSearch + r.webFetch + r.extraIter !== before;
 }
 
 function finalize(r) {
@@ -2217,6 +2230,11 @@ function bhParts(ms, tz) {
   return { h: Number(o.hour) % 24, day: o.year + '-' + o.month + '-' + o.day };
 }
 function bhHHMM(m) { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
+// "H:MM" or "HH:MM" with hours < 24 and minutes < 60 -> "HH:MM"; anything else -> null
+function bhManualTime(s) {
+  const x = typeof s === 'string' ? /^(\d{1,2}):(\d{2})$/.exec(s) : null;
+  return x && Number(x[1]) < 24 && Number(x[2]) < 60 ? x[1].padStart(2, '0') + ':' + x[2] : null;
+}
 
 // hist: [{t,w,p,r}]; reqs: ascending by ts with .cost.total; cfg: CONFIG.widget.heavyHours-like
 function computeBurnHours(hist, reqs, cfg = {}, tz = bhZone()) {
@@ -2227,8 +2245,9 @@ function computeBurnHours(hist, reqs, cfg = {}, tz = bhZone()) {
   if (mode === 'off') return { ...base, reason: 'off' };
   if (mode === 'manual') {
     const m = cfg.manual || {};
-    if (!/^\d{1,2}:\d{2}$/.test(m.start || '') || !/^\d{1,2}:\d{2}$/.test(m.end || '')) return { ...base, ok: false, reason: 'manual range missing' };
-    return { ...base, ranges: [{ start: m.start.padStart(5, '0'), end: m.end.padStart(5, '0'), ratio: null }], reason: 'manual' };
+    const start = bhManualTime(m.start), end = bhManualTime(m.end);
+    if (!start || !end) return { ...base, ok: false, reason: 'invalid manual range' };
+    return { ...base, ranges: [{ start, end, ratio: null }], reason: 'manual' };
   }
   const pts = (hist || []).filter((x) => x && typeof x.t === 'number' && typeof x.p === 'number').slice().sort((a, b) => a.t - b.t);
   // account of every row: 7d rows carry their own reset; other rows borrow it from a 7d row with the same t
@@ -2241,11 +2260,15 @@ function computeBurnHours(hist, reqs, cfg = {}, tz = bhZone()) {
   const agg = Array.from({ length: 24 }, () => ({ dp: 0, cost: 0, n: 0 }));
   const days = new Set();
   let totDp = 0, totCost = 0;
+  // null when a request in [t1, t2) has no price (unknown model): that interval is skipped, never counted as $0
   const costBetween = (t1, t2) => {
     let a = 0, b = reqs.length;
     while (a < b) { const m = (a + b) >> 1; if (reqs[m].ts < t1) a = m + 1; else b = m; }
     let c = 0;
-    for (let i = a; i < reqs.length && reqs[i].ts < t2; i++) c += (reqs[i].cost && reqs[i].cost.total) || 0;
+    for (let i = a; i < reqs.length && reqs[i].ts < t2; i++) {
+      if (!reqs[i].cost) return null;
+      c += reqs[i].cost.total || 0;
+    }
     return c;
   };
   const otherNear = (acct, t1, t2) => {
@@ -2255,13 +2278,17 @@ function computeBurnHours(hist, reqs, cfg = {}, tz = bhZone()) {
     for (let i = a; i < events.length && events[i].t <= to; i++) if (events[i].a !== acct) return true;
     return false;
   };
-  for (const [acct, rows] of by) {
+  for (const [acct, raw] of by) {
+    // the weekly % only rises within a week, but snapshots flicker by 1 (82, 81, 82): use the running max, or every
+    // flicker back up is counted as new usage and busy hours (more snapshots) look heavier than they are
+    let hi = -Infinity;
+    const rows = raw.map((x) => { hi = Math.max(hi, x.p); return { t: x.t, p: hi }; });
     for (let i = 1; i < rows.length; i++) {
       const a = rows[i - 1], b = rows[i], dp = b.p - a.p;
       if (dp < 0 || b.t - a.t > BH.MAX_GAP_MS || b.t <= a.t) continue;
       if (otherNear(acct, a.t, b.t)) continue;
       const cost = costBetween(a.t, b.t);
-      if (!(cost > 0)) continue;
+      if (cost === null || !(cost > 0)) continue;
       const pt = bhParts((a.t + b.t) / 2, tz), g = agg[pt.h];
       g.dp += dp; g.cost += cost; g.n++;
       totDp += dp; totCost += cost; days.add(pt.day);
@@ -2295,11 +2322,34 @@ function computeBurnHours(hist, reqs, cfg = {}, tz = bhZone()) {
   return base;
 }
 
+// config.json > widget is re-read when the file's mtime changes, so edits apply without a restart. CONFIG keeps the
+// startup copy for everything else. widgetVersion moves on every reload and is part of the burn-hours memo key.
+const WIDGET_FILE = process.env.CCU_WIDGET_CONFIG || path.join(ROOT, 'config.json'); // tests point this at a temp copy
+let widgetCache = { mtime: null, block: CONFIG.widget || {} };
+let widgetVersion = 0;
+function widgetConfig() {
+  let mtime;
+  try { mtime = fs.statSync(WIDGET_FILE).mtimeMs; } catch { return widgetCache.block; }
+  if (mtime === widgetCache.mtime) return widgetCache.block;
+  let block = widgetCache.block;
+  try { block = JSON.parse(fs.readFileSync(WIDGET_FILE, 'utf8')).widget || {}; } catch { /* half-saved or invalid: keep the last good block */ }
+  widgetCache = { mtime, block };
+  widgetVersion++;
+  return block;
+}
+
+const US_PEAK_TZ = 'America/Los_Angeles';
+function validTimeZone(tz) { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; } }
+
 function burnHoursPayload() {
   limitsRefresh(2000);
-  const w = CONFIG.widget || {};
+  const w = widgetConfig();
   const out = computeBurnHours(LIM.hist.points, sortedList(), w.heavyHours || {});
   out.usPeak = w.usPeak || null;
+  if (out.usPeak && out.usPeak.timeZone != null && !validTimeZone(out.usPeak.timeZone)) {
+    out.warning = `usPeak.timeZone "${out.usPeak.timeZone}" is not a valid time zone; showing ${US_PEAK_TZ} instead`;
+    out.usPeak = { ...out.usPeak, timeZone: US_PEAK_TZ };
+  }
   return out;
 }
 
@@ -2345,7 +2395,7 @@ function handle(req, res) {
       case '/api/live':
         if (Date.now() - (lastScanAt || 0) > 1500) scan(); // freshest possible answer for the live indicator
         return sendJson(res, live());
-      case '/api/burn-hours': return sendRaw(res, memoJson(key, burnHoursPayload));
+      case '/api/burn-hours': widgetConfig(); return sendRaw(res, memoJson(key + '|' + widgetVersion, burnHoursPayload));
       case '/api/limits':
         if (q.get('refresh') === '1' && probeEnabled()) {
           return probeRefresh().then(() => { limitsRefresh(0); sendJson(res, limitsPayload()); })
