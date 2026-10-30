@@ -34,7 +34,7 @@ fs.mkdirSync(OUT, { recursive: true });
 fs.writeFileSync(path.join(OUT, 'demo-store.json'), JSON.stringify({ builtAt, store }));
 fs.copyFileSync(path.join(ROOT, 'server.js'), path.join(OUT, 'server.js'));
 fs.copyFileSync(path.join(ROOT, 'config.json'), path.join(OUT, 'config.json'));
-for (const f of ['app.js', 'charts.js', 'styles.css', 'live.js', 'live.css', 'limits.js', 'limits.css']) fs.copyFileSync(path.join(ROOT, 'public', f), path.join(OUT, f));
+for (const f of ['app.js', 'charts.js', 'styles.css', 'live.js', 'live.css', 'limits.js', 'limits.css', 'plan.js']) fs.copyFileSync(path.join(ROOT, 'public', f), path.join(OUT, f));
 fs.copyFileSync(path.join(__dirname, 'demo-api.js'), path.join(OUT, 'api.js'));
 
 let html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');

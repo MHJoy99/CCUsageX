@@ -156,7 +156,10 @@ Details, including the data fields and the burn-rate projection, are in
 
 - a **peak clock** with **your heavy hours** (measured from your own history) and the informational **US busy hours**,
 - the **5-hour** and **weekly** rings with reset times, and **per-model** weekly limits,
-- your **burn pace**, a **settings gear**, a **compact mode**, and a clear **offline** state when CCUsageX is not running.
+- your **burn pace**, a **settings gear**, a **compact mode**, and a clear **offline** state when CCUsageX is not running,
+- the **plan value**: what your plan gives in API-equivalent dollars (measured, never typed in) against what you spent
+  today and yesterday, and, with several saved accounts, each account's weekly % and the work left across all of them,
+- a plain **will it last?** answer for all accounts together ("safe up to $X/day"), and effort/model tips from your own logs.
 
 Install it on Windows with [Rainmeter](https://www.rainmeter.net) (CCUsageX must be running):
 

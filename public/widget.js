@@ -22,6 +22,7 @@
     officialOn: true,
     limitsUrl: '/api/limits',                      // CCUsageX endpoints (same origin as this page)
     burnUrl: '/api/burn-hours',
+    planUrl: '/api/plan-value',                    // plan value, today/yesterday and every saved account
     pollMs: 60000,                                 // usage refresh
     scheduleMs: 600000,                            // heavy-hours refresh
     retryMs: 15000,                                // retry cadence while the usage server is offline
@@ -193,9 +194,19 @@
     if (h >= 1) return h + 'h ' + (mm < 10 ? '0' : '') + mm + 'm';
     return mm + 'm';
   }
+  /* plan value helpers (pure) */
+  function money(v) { v = Math.round(Number(v) || 0); return (v < 0 ? '-$' : '$') + String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  // one bar scale for today and yesterday with room past the busier day; the tick marks one plan-day
+  function planScale(a, b) { var top = Math.max(1.25, (Number(a) || 0) * 1.08, (Number(b) || 0) * 1.08); return { top: top, tick: 1 / top }; }
+  function planDaysText(pd) {
+    if (pd == null) return '';
+    if (pd < 1) return Math.round(pd * 100) + '% of a plan-day';
+    var t = pd.toFixed(1);
+    return t + (t === '1.0' ? ' plan-day' : ' plan-days');
+  }
   var core = { CONFIG: CONFIG, stateAt: stateAt, nextChange: nextChange, inWindow: inWindow, bandsOf: bandsOf,
     legendOf: legendOf, dayStartMs: dayStartMs, fmtMin: fmtMin, fmtDur: fmtDur, parts: parts, applySchedule: applySchedule,
-    captionFor: captionFor, heavyWindows: heavyWindows };
+    captionFor: captionFor, heavyWindows: heavyWindows, money: money, planScale: planScale, planDaysText: planDaysText };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   root.PulseCore = core;
   if (typeof document === 'undefined') return;
@@ -223,7 +234,7 @@
 
   /* settings (localStorage, wrapped) */
   var KEY = 'mhjoy.claudepulse.v1';
-  var DEFAULTS = { mode: 'expanded', show: { peak: true, usp: true, session: true, weekly: true, models: true, pace: true } };
+  var DEFAULTS = { mode: 'expanded', show: { peak: true, usp: true, session: true, weekly: true, models: true, pace: true, plan: true } };
   function loadSettings() {
     var s = JSON.parse(JSON.stringify(DEFAULTS));
     if (Q.get('nostore')) return s;
@@ -465,6 +476,102 @@
     applyVisibility();
   }
 
+  /* plan value: what the plan gives (measured API-$ per 1% weekly) vs what was spent, and every saved account */
+  var plan = null, planShown = {}, firstPlan = true;
+  var fmtMdDtf = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+  function barTo(id, key, frac, firstTime) {
+    frac = Math.max(0, Math.min(1, frac || 0));
+    var from = firstTime ? 0 : (planShown[key] == null ? frac : planShown[key]);
+    planShown[key] = frac;
+    tween('pv' + key, from, frac, 1300, function (v) { var b = $(id); if (b) b.style.transform = 'scaleX(' + Math.max(0, v).toFixed(4) + ')'; });
+  }
+  function splitText(list) {
+    if (!list || list.length < 2) return '';
+    return list.slice(0, 3).map(function (x) { return esc(x.label) + ' ' + money(x.cost); }).join('  \u00b7  ');
+  }
+  var VERDICT_ICON = {
+    enough: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.4l2.6 2.6L12 5.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    tight: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/></svg>',
+    short: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 5l6 6M11 5l-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  };
+  // will the accounts carry the week? the answer in one line, plus the numbers behind it
+  function verdictOf(d) {
+    var fc = d.forecast;
+    if (!fc) return null;
+    var n = d.accounts && d.accounts.count > 1 ? d.accounts.count : 1;
+    var who = n > 1 ? 'Your ' + n + ' accounts are' : 'Your account is';
+    var safe = fc.safeDay == null ? 'any pace is safe' : 'safe up to <b>' + money(fc.safeDay) + '/day</b>';
+    var sub = 'You use ' + money(fc.usualDay) + '/day \u00b7 ' + safe;
+    if (fc.verdict === 'enough') return { v: 'enough', title: who + ' enough', sub: sub,
+      sub2: fc.headroom ? 'Room for ' + fc.headroom.toFixed(1) + '\u00d7 your usual pace; a heavy ' + money(fc.heavyDay) + ' day still fits' : '' };
+    if (fc.verdict === 'tight') return { v: 'tight', title: 'Enough, but tight on heavy days', sub: sub,
+      sub2: 'Heavy days (' + money(fc.heavyDay) + ') run dry ' + esc(fmtAt(fc.heavyDryAt)) };
+    return { v: 'short', title: 'Runs dry ' + esc(fmtAt(fc.dryAt)), sub: sub,
+      sub2: (fc.safeDay != null ? 'Cut \u2248 ' + money(fc.usualDay - fc.safeDay) + '/day to last' : '') + (fc.backAt ? ' \u00b7 back ' + esc(fmtAt(fc.backAt)) : '') };
+  }
+  function renderPlan() {
+    var el = $('sec-plan'), d = plan, first = firstPlan;
+    if (!d || !d.ok || !d.plan) { el.dataset.empty = '1'; el.innerHTML = ''; return; }
+    el.dataset.empty = '0';
+    var p = d.plan, html = '';
+    var wk = p.range ? money(p.range.lo) + '\u2013' + money(p.range.hi).slice(1) : money(p.perWeek);
+    var note = p.stale && p.measuredAt ? ' <small class="old">(last measured ' + esc(fmtMdDtf.format(p.measuredAt)) + ')</small>' : p.range ? ' <small>(still measuring)</small>' : '';
+    html += '<div class="pv-top"><div class="m-cap">Plan value</div><span class="pv-day">\u2248 ' + money(p.perDay) + ' a day</span></div>';
+    var vd = verdictOf(d);
+    if (vd) html += '<div class="pv-v" data-v="' + vd.v + '"><i>' + VERDICT_ICON[vd.v] + '</i><div><b>' + vd.title + '</b><small>' + vd.sub + '</small>' + (vd.sub2 ? '<small>' + vd.sub2 + '</small>' : '') + '</div></div>';
+    html += '<div class="pv-h">Your plan \u2248 <b>' + wk + '</b><small> /week of API work</small>' + note + '</div>';
+    var td = d.today || {}, yd = d.yesterday || {}, sc = planScale(td.planDays, yd.planDays);
+    [['Today', td, 't'], ['Yesterday', yd, 'y']].forEach(function (x) {
+      var v = x[1], pd = v.planDays;
+      html += '<div class="pv-row" data-over="' + (pd > 1 ? 1 : 0) + '"><b>' + x[0] + '</b><div class="bar"><i id="pvb' + x[2] + '"></i><span class="pv-tick" style="left:' + (sc.tick * 100).toFixed(1) + '%"></span></div>' +
+        '<em>' + money(v.cost) + ' <small>\u00b7 ' + planDaysText(pd) + '</small></em></div>';
+      var st = splitText(v.split);
+      if (st) html += '<div class="pv-split">' + st + '</div>';
+    });
+    var acc = d.accounts && d.accounts.list && d.accounts.list.length ? d.accounts : null;
+    if (acc) {
+      html += '<div class="pv-acc"><div class="pv-top"><div class="m-cap">Accounts</div><em>\u2248 ' + money(acc.spare) + ' of work left</em></div>';
+      acc.list.forEach(function (a, i) {
+        var pct = Math.max(0, Math.min(100, a.pct || 0));
+        html += '<div class="pv-a' + (a.active ? ' on' : '') + '" data-sev="' + sev(pct) + '" title="' + esc(a.label) + (a.spare != null ? ' \u00b7 \u2248 ' + money(a.spare) + ' left' : '') + (a.active ? ' \u00b7 active' : '') + '">' +
+          '<b><i></i>' + esc(a.label) + '</b><div class="bar"><i id="pva' + i + '"></i></div><em>' + Math.round(pct) + '%</em><span>' + esc(fmtAt(a.resetsAt)) + '</span></div>';
+      });
+      html += '</div>';
+    }
+    var rw = d.runway, fc = d.forecast;
+    if (fc) {
+      // when each account fills at the usual pace (inside the week)
+      var fills = (acc ? acc.list : []).filter(function (a) { return a.fullAt; }).sort(function (x, y) { return x.fullAt - y.fullAt; });
+      html += '<div class="pv-run">' + (fills.length
+        ? 'At your usual pace ' + fills.slice(0, 2).map(function (a) { return esc(a.label) + ' is full <b>' + esc(fmtAt(a.fullAt)) + '</b>'; }).join(', ')
+        : 'At your usual pace no account fills before it resets') + '</div>';
+    } else if (rw) {
+      var many = !!(acc && acc.count > 1), who = many ? 'All ' + acc.count + ' accounts' : 'This account';
+      var rate = rw.perHour > 0 ? ' at ' + money(rw.perHour) + '/h' : '';
+      html += '<div class="pv-run">' + (rw.outlasts ? who + (many ? ' outlast' : ' outlasts') + ' <b>the week</b>' + rate
+        : who + (many ? ' last' : ' lasts') + ' until <b>' + esc(fmtAt(rw.until)) + '</b>' + rate + (rw.dryUntil ? ' \u00b7 back ' + esc(fmtAt(rw.dryUntil)) : '')) + '</div>';
+    }
+    var tips = (d.tips || []).slice(0, fc && fc.verdict === 'short' ? 2 : 1);
+    tips.forEach(function (t) { html += '<div class="pv-tip" data-save="' + (t.savePerDay > 0 ? 1 : 0) + '"><b>' + (t.savePerDay > 0 ? 'Save' : 'Tip') + '</b><span>' + esc(t.text) + '</span></div>'; });
+    if (el.innerHTML !== html) el.innerHTML = html;
+    barTo('pvbt', 't', (td.planDays || 0) / sc.top, first);
+    barTo('pvby', 'y', (yd.planDays || 0) / sc.top, first);
+    if (acc) acc.list.forEach(function (a, i) { barTo('pva' + i, 'a' + (a.id || i), Math.max(0, Math.min(100, a.pct || 0)) / 100, first); });
+    firstPlan = false;
+  }
+  var planTimer = 0;
+  function fetchPlan() {
+    clearTimeout(planTimer);
+    var ctl = ('AbortController' in window) ? new AbortController() : null;
+    var to = setTimeout(function () { if (ctl) ctl.abort(); }, 8000);
+    var delay = CONFIG.pollMs;
+    fetch(apiBase + CONFIG.planUrl, { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { if (r.status === 404) { delay = CONFIG.scheduleMs; return null; } if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) { plan = d && typeof d === 'object' && !d.error ? d : null; renderPlan(); applyVisibility(); })
+      .catch(function () { delay = CONFIG.retryMs; /* keep the last answer; the offline state hides the card */ })
+      .finally(function () { clearTimeout(to); planTimer = setTimeout(fetchPlan, delay); });
+  }
+
   /* ---------- fetching ---------- */
   var pollTimer = 0;
   function fetchLimits() {
@@ -541,7 +648,7 @@
     card.classList.toggle('mode-compact', S.mode === 'compact');
     card.classList.toggle('mode-expanded', S.mode !== 'compact');
     $('sec-peak').hidden = !sh.peak;
-    $('sec-offline').hidden = !off || !(sh.session || sh.weekly || sh.models || sh.pace);
+    $('sec-offline').hidden = !off || !(sh.session || sh.weekly || sh.models || sh.pace || sh.plan);
     var showU = !off && !!usage;
     $('usage').hidden = off;
     if (nodata) showU = false;
@@ -552,10 +659,11 @@
     $('tiles').classList.toggle('one', bothOne === 1);
     $('sec-models').hidden = !(sh.models && showU) || $('sec-models').dataset.empty === '1';
     $('sec-pace').hidden = !(sh.pace && showU) || $('sec-pace').dataset.empty !== '0' || S.mode === 'compact';
-    var any = sh.peak || sh.session || sh.weekly || sh.models || sh.pace;
+    $('sec-plan').hidden = !sh.plan || off || $('sec-plan').dataset.empty !== '0';
+    var any = sh.peak || sh.session || sh.weekly || sh.models || sh.pace || sh.plan;
     $('sec-empty').hidden = any;
     // re-trigger the entry animation for sections that just appeared
-    ['sec-peak', 'sec-session', 'sec-weekly', 'sec-models', 'sec-pace', 'sec-offline'].forEach(function (id) {
+    ['sec-peak', 'sec-session', 'sec-weekly', 'sec-models', 'sec-pace', 'sec-plan', 'sec-offline'].forEach(function (id) {
       var e = $(id), vis = !e.hidden;
       if (vis && e._wasHidden) { e.style.animation = 'none'; void e.offsetWidth; e.style.animation = ''; }
       e._wasHidden = !vis;
@@ -649,10 +757,11 @@
   try { renderPeak(true); } catch (e) { /* a schedule that cannot render must not stop the fetches below (the 15 s tick retries) */ }
   fetchLimits();
   fetchSchedule();
+  fetchPlan();
   // idle cost: nothing animates continuously; a 15 s tick moves the hand, and while the window is hidden/minimised no work is done
   setInterval(function () { if (document.hidden) return; renderPeak(false); if (usage) { renderFooter(); } }, 15000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { renderPeak(false); renderFooter(); } });
   if (Q.get('panel') === 'settings') { inSettings = false; showView(true); }
   // refresh reset countdown texts once a minute without refetching
-  setInterval(function () { if (!document.hidden && usage && online) renderUsage(); }, 60000); // rings keep their value (tween no-op)
+  setInterval(function () { if (!document.hidden && usage && online) { renderUsage(); renderPlan(); } }, 60000); // rings and bars keep their value (tween no-op)
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -5,6 +5,32 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-10-30
+
+### Added
+
+- **Plan value**: a new Claude Pulse card and dashboard card that show what your plan gives against what you spend,
+  in API-equivalent dollars. The dollars per 1% of the weekly limit are measured live with the heavy-hours stretches
+  (same filters), pooled over the last 7 days. A range is shown while data is thin; with too little data the last good
+  value is used and labelled "last measured <date>". No plan price is typed in anywhere.
+- Today and yesterday (local days), each next to one plan-day ("93% of a plan-day", "2.0 plan-days"), split by account.
+- **Multiple accounts**: when the CCSwitcherX folder (`~/.claude-accounts`) exists, every saved account's weekly %,
+  reset time and spare dollars, the total work left this week, and a runway for all accounts together. Each dollar is
+  counted for the account that was active when it was spent. The folder is read for its usage numbers only; saved
+  sign-ins are never opened. Labels come from a local `~/.ccusagex/account-labels.json`.
+- **Will it last?** A plain answer at the top of both cards: "Your 3 accounts are enough", "Enough, but tight on heavy
+  days" or "Runs dry <time>". It is worked out from your usual day (average of the last 7 full days) and your heaviest
+  day, run through every account's spare dollars and reset times, plus the highest steady dollars per day that still
+  lasts the week ("safe up to $X/day") and when each account fills at your usual pace.
+- **Tips from your own logs**: cost per prompt by effort (helpers included) over the last 7 days, and what would save
+  money: a lower effort when it really costs less per prompt, Opus helpers on Sonnet 5.5, fast mode off, and (only when
+  the week is tight) routine prompts on Sonnet 5.5. When a higher effort costs about the same, the tip says so.
+- `GET /api/plan-value`.
+
+### Changed
+
+- Sonnet 5.5 cache reads are priced at $0.10 per million tokens (official list price, checked 2026-10-30).
+
 ## [1.4.2] - 2026-10-16
 
 ### Changed

@@ -201,6 +201,52 @@ footer { display: flex; align-items: center; justify-content: space-between; hei
 #sec-pace::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--sev, var(--warn)); }
 #sec-pace .p1 { font-size: 11.5px; font-weight: 600; color: var(--ink); }
 #sec-pace .p2 { font-size: 10.5px; color: var(--ink-3); margin-top: 1px; }
+/* ---------- plan value: what the plan gives vs what we spend ---------- */
+#sec-plan { padding: 10px 12px; }
+.pv-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pv-top .m-cap { margin: 0; }
+.pv-day { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
+.pv-h { margin: 3px 0 8px; font-size: 11px; color: var(--ink-2); }
+.pv-h b { font-size: 19px; font-weight: 700; letter-spacing: -.3px; color: var(--ink); }
+.pv-h small { font-size: 10px; color: var(--ink-3); }
+.pv-h .old { color: var(--warn-t); font-weight: 600; }
+.pv-row { display: grid; grid-template-columns: 58px 1fr auto; gap: 8px; align-items: center; }
+.pv-row + .pv-row { margin-top: 6px; }
+.pv-row b { font-size: 11.5px; font-weight: 650; white-space: nowrap; }
+.pv-row em { font-style: normal; font-size: 11px; font-weight: 650; text-align: right; white-space: nowrap; }
+.pv-row em small { font-weight: 500; color: var(--ink-3); }
+.pv-row .bar { display: block; margin: 0; position: relative; overflow: visible; }
+.pv-row .bar i { --sev: var(--ok); }
+.pv-row[data-over="1"] .bar i { --sev: var(--warn); }
+.pv-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--ink-2); opacity: .55; }
+.pv-split { margin: 1px 0 0 66px; font-size: 9.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-acc { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--hair); }
+.pv-acc .pv-top em { font-style: normal; font-size: 10.5px; font-weight: 650; color: var(--ok-t); }
+.pv-a { display: grid; grid-template-columns: 76px 1fr 30px 66px; gap: 7px; align-items: center; margin-top: 6px; }
+.pv-a b { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+.pv-a b i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: rgba(15,42,27,.2); }
+.pv-a.on b i { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+.pv-a.on b { font-weight: 700; }
+.pv-a .bar { display: block; margin: 0; height: 5px; }
+.pv-a em { font-style: normal; font-size: 10.5px; font-weight: 650; text-align: right; }
+.pv-a span { font-size: 9.5px; color: var(--ink-3); text-align: right; white-space: nowrap; }
+.pv-run { margin-top: 7px; font-size: 10.5px; color: var(--ink-2); }
+.pv-run b { font-weight: 650; color: var(--ink); }
+.pv-v { --v: var(--ok); --v-t: var(--ok-t); --v-bg: var(--ok-bg); display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; margin: 7px 0 8px; padding: 7px 9px; border-radius: 10px; background: var(--v-bg); }
+.pv-v[data-v="tight"] { --v: var(--warn); --v-t: var(--warn-t); --v-bg: var(--warn-bg); }
+.pv-v[data-v="short"] { --v: var(--high); --v-t: var(--high-t); --v-bg: var(--high-bg); }
+.pv-v i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--v); color: #fff; }
+.pv-v i svg { width: 14px; height: 14px; }
+.pv-v b { display: block; font-size: 12.5px; font-weight: 700; color: var(--v-t); line-height: 1.25; }
+.pv-v small { display: block; margin-top: 1px; font-size: 10px; color: var(--ink-2); line-height: 1.35; }
+.pv-v small b { display: inline; font-size: inherit; font-weight: 650; color: var(--ink); }
+.pv-tip { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: baseline; margin-top: 6px; font-size: 10px; line-height: 1.35; color: var(--ink-2); }
+.pv-tip b { font-size: 8.5px; font-weight: 750; letter-spacing: .6px; text-transform: uppercase; padding: 1px 5px; border-radius: 6px; color: var(--ok-t); background: var(--ok-bg); }
+.pv-tip[data-save="1"] b { color: var(--warn-t); background: var(--warn-bg); }
+.mode-compact .pv-split, .mode-compact .pv-a span, .mode-compact .pv-run, .mode-compact .pv-tip, .mode-compact .pv-v small + small { display: none; }
+.mode-compact .pv-a { grid-template-columns: 76px 1fr 30px; }
+.mode-compact .pv-h { margin-bottom: 6px; } .mode-compact .pv-h b { font-size: 16px; }
+
 #sec-offline { text-align: center; padding: 18px 12px; }
 #sec-offline .orb { width: 34px; height: 34px; margin: 0 auto 8px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, #c9d6ce);
   box-shadow: inset 0 -3px 6px rgba(15,42,27,.15), 0 4px 10px -4px rgba(0,30,12,.4); }

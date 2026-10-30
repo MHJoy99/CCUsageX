@@ -22,7 +22,7 @@
     }
   },
   "pricing": {
-    "source": "Anthropic first-party API list prices (https://platform.claude.com/docs/en/about-claude/pricing), checked 2026-10-06",
+    "source": "Anthropic first-party API list prices (https://platform.claude.com/docs/en/about-claude/pricing), checked 2026-10-30 (Sonnet 5.5 cache read 0.10, Haiku 5.5 tiers re-confirmed)",
     "unit": "USD per million tokens",
     "cacheWrite5mMultiplier": 1.25,
     "cacheWrite1hMultiplier": 2,
@@ -35,7 +35,7 @@
       "claude-opus-4-8":   { "input": 5,    "output": 25,   "cacheRead": 0.50, "fastMultiplier": 2 },
       "claude-opus-4-7":   { "input": 5,    "output": 25,   "cacheRead": 0.50 },
       "claude-opus-4-6":   { "input": 5,    "output": 25,   "cacheRead": 0.50 },
-      "claude-sonnet-5-5": { "input": 2,    "output": 10,   "cacheRead": 0.20 },
+      "claude-sonnet-5-5": { "input": 2,    "output": 10,   "cacheRead": 0.10 },
       "claude-sonnet-5":   { "input": 2,    "output": 10,   "cacheRead": 0.20 },
       "claude-sonnet-4-6": { "input": 3,    "output": 15,   "cacheRead": 0.30 },
       "claude-haiku-5-5":  { "input": 0.10, "output": 0.50, "cacheRead": 0.01,

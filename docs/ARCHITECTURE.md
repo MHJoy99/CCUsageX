@@ -177,7 +177,7 @@ Rules, in the order the code applies them:
 Prices live in `config.json` under `pricing`. USD per million tokens.
 
 ```json
-"claude-sonnet-5-5": { "input": 2, "output": 10, "cacheRead": 0.20 }
+"claude-sonnet-5-5": { "input": 2, "output": 10, "cacheRead": 0.10 }
 ```
 
 Optional keys per model:
@@ -231,7 +231,7 @@ Current table (`pricing.source` in `config.json` names the source and the check 
 | claude-opus-4-8 | 5 | 25 | 0.50 | fast ×2 |
 | claude-opus-4-7 | 5 | 25 | 0.50 | |
 | claude-opus-4-6 | 5 | 25 | 0.50 | |
-| claude-sonnet-5-5 | 2 | 10 | 0.20 | |
+| claude-sonnet-5-5 | 2 | 10 | 0.10 | |
 | claude-sonnet-5 | 2 | 10 | 0.20 | |
 | claude-sonnet-4-6 | 3 | 15 | 0.30 | |
 | claude-haiku-5-5 | 0.10 | 0.50 | 0.01 | long context above 100,000 prompt tokens: 0.50 / 2.50 / 0.05 |
@@ -544,6 +544,19 @@ In `auto` mode only, it needs `minDays` (default 3) distinct days; `manual` and 
 `mode` (`auto`, `manual`, `off`), `timeZone`, `days`,
 `minDays`, `baselinePctPer100`, `hours[24]`, `ranges[{start,end,ratio}]`, `reason`, and `usPeak` (the informational
 band from `widget.usPeak`). Settings are in the `widget` block of `config.json`; see [WIDGET.md](WIDGET.md).
+
+### `GET /api/plan-value`
+
+What the plan gives against what was spent, for the widget and dashboard cards. Dollars per 1% weekly are pooled over
+the last 7 days of heavy-hours pieces (above). Fields: `ok`, `reason` (`measured`, `last measured`, `need more data`),
+`timeZone`, `now`; `plan` `{perPct, perWeek, perDay, range{lo,hi}|null, chunks, thin, stale, measuredAt}`;
+`today` and `yesterday` `{from, to, cost, unpriced, planDays, split[{id,label,cost}]}`; `pace` `{perHour, last24h,
+usualDay, heavyDay, days}`; `accounts` `{list[{id,label,active,pct,resetsAt,updatedAt,source,perPct,ownRate,spare,
+fullAt}], count, spare, weekLimit}` (null without the CCSwitcherX folder); `runway` `{until, dryUntil, outlasts,
+accounts, cap, perHour}` at the usual pace; `forecast` `{verdict (enough|tight|short), usualDay, heavyDay, safeDay,
+headroom, dryAt, backAt, heavyDryAt}`; `effort` `[{effort, prompts, perPrompt, share}]`; `tips` `[{kind (effort|
+helpers|fast|model), savePerDay, text}]`, savings first. The last good rate is
+kept in `~/.ccusagex/plan-value.json`. See [WIDGET.md](WIDGET.md#how-plan-value-is-measured).
 ### Static files
 
 `GET /` serves `public/index.html`. Any other `GET` path maps to a file under `public/` (`app.js`, `charts.js`,
@@ -872,6 +885,7 @@ then `3020`. The host is always `127.0.0.1` and cannot be changed.
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code config folder. Transcripts are read from `<dir>/projects`. |
 | `CCU_DATA_DIR` | `~/.ccusagex` | Folder for `store.json`. |
 | `CCU_START_DATE` | `config.json` `startDate` | Overrides the start date: `YYYY-MM-DD` or `all`. |
+| `CCU_SWITCHER_DIR` | `~/.claude-accounts` | CCSwitcherX folder read (read-only) for the plan-value accounts. |
 
 The test suite sets `CLAUDE_CONFIG_DIR`, `CCU_DATA_DIR` and `CCU_START_DATE` to temporary folders, so tests never touch
 real data.

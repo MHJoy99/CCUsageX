@@ -491,6 +491,49 @@
     }
     return { payload: payload };
   })();
+  /* ================================================================== Plan-value simulator (fictional)
+     Same shape as server.js GET /api/plan-value (computePlanValue). Scenario via ?plan=multi|single|thin|stale|tight|short|none (default "multi"). */
+  var Plan = (function () {
+    var q = ''; try { q = new URLSearchParams(location.search).get('plan') || 'multi'; } catch (e) { q = 'multi'; }
+    var H = 3600000;
+    function payload() {
+      if (q === 'none') return { ok: false, reason: 'need more data', plan: null };
+      var now = Date.now(), k = 9.8, perDay = Math.round(k * 100 / 7 * 100) / 100;
+      var plan = { perPct: k, perWeek: 980, perDay: perDay, range: null, chunks: 21, thin: false, stale: false, measuredAt: now };
+      if (q === 'thin') { plan.range = { lo: 760, hi: 1240 }; plan.thin = true; plan.chunks = 4; }
+      if (q === 'stale') { plan.stale = true; plan.measuredAt = now - 3 * 24 * H; }
+      var multi = q !== 'single';
+      var list = multi ? [
+        { id: 'demo-a', label: 'Work', active: true, pct: 41, resetsAt: now + 52 * H, source: 'statusline' },
+        { id: 'demo-b', label: 'Side project', active: false, pct: 88, resetsAt: now + 19 * H, source: 'switcher' },
+        { id: 'demo-c', label: 'Spare', active: false, pct: 12, resetsAt: now + 121 * H, source: 'switcher' }
+      ] : [{ id: 'demo-a', label: 'Work', active: true, pct: 41, resetsAt: now + 52 * H, source: 'statusline' }];
+      if (q === 'tight') { list[0].pct = 63; list[2].pct = 58; }
+      if (q === 'short') { list[0].pct = 82; list[1].pct = 94; list[2].pct = 79; }
+      list.forEach(function (a) { a.updatedAt = now - 4 * 60000; a.perPct = k; a.ownRate = true; a.spare = Math.round((100 - a.pct) * k); a.fullAt = null; });
+      var fc = { verdict: 'enough', usualDay: 118, heavyDay: 214, safeDay: 296, headroom: 2.51, dryAt: null, backAt: null, heavyDryAt: null };
+      if (!multi) { fc.safeDay = 132; fc.headroom = 1.12; fc.verdict = 'tight'; fc.heavyDryAt = now + 38 * H; list[0].fullAt = now + 46 * H; }
+      if (q === 'tight') { fc = { verdict: 'tight', usualDay: 118, heavyDay: 214, safeDay: 151, headroom: 1.28, dryAt: null, backAt: null, heavyDryAt: now + 61 * H }; list[0].fullAt = now + 44 * H; }
+      if (q === 'short') { fc = { verdict: 'short', usualDay: 118, heavyDay: 214, safeDay: 74, headroom: 0.63, dryAt: now + 27 * H, backAt: now + 52 * H, heavyDryAt: now + 15 * H }; list[1].fullAt = now + 4 * H; list[0].fullAt = now + 15 * H; }
+      var tips = [{ kind: 'effort', savePerDay: 0, text: 'xhigh costs about the same per prompt as high ($2.40 vs $2.25): use it whenever the task needs it' }];
+      if (fc.verdict !== 'enough') tips = [
+        { kind: 'helpers', savePerDay: 22, text: 'Helpers ran on Opus for $41/day: on Sonnet 5.5 the same work saves \u2248 $22/day' },
+        { kind: 'model', savePerDay: 14, text: 'Medium-effort chores on Sonnet 5.5 instead of Opus save \u2248 $14/day' }
+      ].concat(tips);
+      var spare = list.reduce(function (x, a) { return x + a.spare; }, 0);
+      var day = function (cost, split) { return { from: now - 12 * H, to: now, cost: cost, unpriced: 0, planDays: Math.round(cost / perDay * 100) / 100, split: multi ? split : [] }; };
+      return { ok: true, timeZone: 'UTC', now: now, plan: plan,
+        today: day(96.4, [{ id: 'demo-a', label: 'Work', cost: 71.2 }, { id: 'demo-b', label: 'Side project', cost: 25.2 }]),
+        yesterday: day(211.8, [{ id: 'demo-b', label: 'Side project', cost: 128.5 }, { id: 'demo-a', label: 'Work', cost: 83.3 }]),
+        pace: { perHour: 6.4, last24h: 153.6, usualDay: fc.usualDay, heavyDay: fc.heavyDay, days: 7 },
+        accounts: { list: list, count: list.length, spare: spare, weekLimit: 96 },
+        runway: { until: fc.dryAt, dryUntil: fc.backAt, outlasts: !fc.dryAt, accounts: list.length, cap: 96, perHour: Math.round(fc.usualDay / 24 * 100) / 100 },
+        forecast: fc,
+        effort: [{ effort: 'medium', prompts: 214, perPrompt: 1.08, share: 0.38 }, { effort: 'high', prompts: 96, perPrompt: 2.25, share: 0.35 }, { effort: 'xhigh', prompts: 63, perPrompt: 2.4, share: 0.27 }],
+        tips: tips, reason: null };
+    }
+    return { payload: payload };
+  })();
   function json(o, st) { return new Response(JSON.stringify(o), { status: st || 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } }); }
 
   window.fetch = function (input, init) {
@@ -498,6 +541,7 @@
     if (url.indexOf('/api/') === -1) return fetch0(input, init);
     if (url.indexOf('/api/limits') !== -1) return Promise.resolve(json(Lim.payload()));
     if (url.indexOf('/api/burn-hours') !== -1) return Promise.resolve(json(Burn.payload()));
+    if (url.indexOf('/api/plan-value') !== -1) return Promise.resolve(json(Plan.payload()));
     if (url.indexOf('/api/live/state') !== -1) { var st0 = Sim.state(); st0.limits = Lim.payload(); return Promise.resolve(json(st0)); }
     if (url.indexOf('/api/stream') !== -1) return Promise.resolve(json({ error: 'use EventSource' }, 404));
     var sm = /\/api\/(request|prompt)\?(?:key|id)=(sim-[^&]+)/.exec(url);

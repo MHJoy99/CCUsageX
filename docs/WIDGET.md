@@ -12,6 +12,8 @@ desktop with the Rainmeter skin in `integrations/rainmeter/ClaudePulse/`.
 - **5-hour and weekly rings** for your plan limits, with reset times.
 - **Per-model weekly limits** when Claude Code reports them.
 - **Burn pace**: whether you are on track to hit a limit before it resets.
+- **Plan value**: your plan in API-equivalent dollars per week and per day, against today's and yesterday's spend
+  (see [How plan value is measured](#how-plan-value-is-measured)).
 - **Settings gear**, **compact mode**, and an **offline state** when the CCUsageX server is not running.
 
 ## Install (Windows, Rainmeter)
@@ -96,6 +98,37 @@ It needs **at least 3 distinct days** of paired data (`minDays`). Before that th
 raw numbers are in `GET /api/burn-hours` (`mode`, `days`, `baselinePctPer100`, per-hour `pctPer100`, `ranges`).
 The measurement depends on plan-limit snapshots, so install the [status line](FAQ.md) (or keep the server running
 so the `/usage` probe collects them).
+
+## How plan value is measured
+
+The card answers "what does my plan give, and how much of it did I use?" in API-equivalent dollars:
+
+- **Dollars per 1% weekly.** The same stretches as the heavy hours (running maximum, 3-hour pieces with at least $20
+  of work, no other account nearby, pieces 3 times off the median dropped) from the last 7 days are pooled: total
+  dollars over total weekly-percent rise. The plan is that times 100 per week, and a seventh of it per day.
+- **Range.** With fewer than 6 pieces, or when they scatter by more than 10%, the card shows a range instead of one
+  number. With fewer than 3 pieces (or under 10 points of weekly rise) it shows the last good value, labelled
+  "last measured <date>".
+- **Today and yesterday** are local calendar days, each compared with one plan-day. A tick on the bar marks one
+  plan-day.
+- **Accounts.** If the CCSwitcherX account switcher folder `~/.claude-accounts` exists, the card lists
+  every saved account (weekly %, reset time, spare dollars) and the total work left this week. Only `usage.json` and
+  `autoswitch.json` are read; saved sign-ins are never opened. Every dollar is counted for the account that was
+  active when it was spent (the nearest weekly row within 6 hours). Names come from your own
+  `~/.ccusagex/account-labels.json` (`{ "<profile id>": "Name" }`); without it accounts are numbered. The runway
+  drains the active account to the switcher's `weekLimit`, then the account that resets soonest.
+- **Will it last?** Your usual day is the average of the last 7 full local days; your heavy day is the busiest of
+  them (or today, if busier). Both are run through the accounts as above. "Enough" means even the heavy pace lasts to
+  the end of the 7-day window, "tight" means only the usual pace does, "runs dry" means the usual pace does not. "Safe
+  up to $X/day" is the highest steady pace that still lasts. "Full <time>" is when an account reaches the limit at
+  your usual pace before it resets.
+- **Tips.** Every prompt of the last 7 days is costed with its helpers and grouped by the effort it ran at. A lower
+  effort is suggested only when it costs at least 15% less per prompt (both with 20+ prompts); the saving assumes half
+  of the higher-effort prompts are routine. Opus helpers are re-priced on Sonnet 5.5 from their real tokens; fast mode
+  counts its surcharge. Moving routine (medium/low) prompts to Sonnet 5.5 is suggested only when the week is tight or
+  short. Compact mode hides the tips.
+
+The numbers are in `GET /api/plan-value`. Hide the card with the gear (Plan value).
 
 ### The US busy-hours band
 

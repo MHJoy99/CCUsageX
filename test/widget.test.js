@@ -19,6 +19,7 @@ const WIDGET_FILE = path.join(TMP, 'config.json');
 process.env.CCU_WIDGET_CONFIG = WIDGET_FILE;
 fs.copyFileSync(path.join(__dirname, '..', 'config.json'), WIDGET_FILE);
 delete process.env.CCU_LIMITS_PROBE;
+process.env.CCU_SWITCHER_DIR = path.join(TMP, 'switcher'); // never the real ~/.claude-accounts
 fs.mkdirSync(path.join(TMP, 'claude', 'projects'), { recursive: true });
 fs.mkdirSync(path.join(TMP, 'data', 'limits'), { recursive: true });
 const srv = require('../server.js');
@@ -303,4 +304,183 @@ test('burn-hours: a stretch whose weekly % jumped with almost no local work is d
   const o = srv.computeBurnHours(hist, reqs, { mode: 'auto', minDays: 3 }, 'UTC');
   assert.equal(o.hours[15].cost, 0);
   assert.deepEqual(o.ranges.map((r) => r.start), ['21:00']);
+});
+
+// ---------------------------------------------------------------- plan value (synthetic, two accounts)
+// Account A (reset RA) works 08:00-11:00 at 0.01 %/$ ($100 per 1%), account B (reset RB) works 15:00-18:00 at 0.02 %/$
+// ($50 per 1%), days 0-5; on day 6 only A's morning so far. A point every 30 minutes, $30 of work per interval.
+const RA = BASE / 1000 + 8 * 86400, RB = BASE / 1000 + 9.5 * 86400;
+function planFixture() {
+  const hist = [], reqs = [];
+  const p = { [RA]: 0, [RB]: 0 };
+  const seg = (d, h0, h1, r, rate) => {
+    const t0 = BASE + d * 24 * HOUR + h0 * HOUR, t1 = BASE + d * 24 * HOUR + h1 * HOUR;
+    for (let t = t0; t <= t1; t += 30 * MIN) {
+      if (t > t0) p[r] += 30 * rate;
+      hist.push({ t, w: '7d', p: p[r], r }, { t, w: '5h', p: p[r] % 100, r: r + 7 });
+      if (t < t1) for (let k = 0; k < 6; k++) reqs.push({ ts: t + k * 5 * MIN, cost: { total: 5 } });
+    }
+  };
+  for (let d = 0; d < 6; d++) { seg(d, 8, 11, RA, 0.01); seg(d, 15, 18, RB, 0.02); }
+  seg(6, 8, 11, RA, 0.01);
+  reqs.sort((a, b) => a.ts - b.ts);
+  return { hist, reqs, now: BASE + 6 * 24 * HOUR + 12 * HOUR, pA: p[RA], pB: p[RB] };
+}
+
+test('plan value: pooled $ per 1%, per-account rates, and every $ goes to the account active at that time', () => {
+  const f = planFixture();
+  const sw = { profiles: [
+    { id: 'aaaaaaaaaaaa', label: 'Alpha', pct: 1, resetsAt: RA * 1000, fetchedAt: f.now - 2 * 24 * HOUR },
+    { id: 'bbbbbbbbbbbb', label: 'Beta', pct: f.pB, resetsAt: RB * 1000, fetchedAt: f.now - HOUR },
+  ], activeId: 'aaaaaaaaaaaa', activeAt: BASE, weekLimit: 96 };
+  const o = srv.computePlanValue(f.hist, f.reqs, sw, f.now, 'UTC', null);
+  assert.equal(o.ok, true);
+  assert.equal(o.reason, 'measured');
+  // pooled: (7 x 1.8 + 6 x 3.6) % over 13 x $180 -> $68.42 per 1%
+  assert.ok(Math.abs(o.plan.perPct - 68.42) < 0.05, 'perPct ' + o.plan.perPct);
+  assert.equal(o.plan.perWeek, Math.round(o.plan.perPct * 100));
+  assert.equal(o.plan.perDay, Math.round(o.plan.perPct * 100 / 7));
+  assert.equal(o.plan.thin, true); // two accounts burning at rates 2x apart: wide scatter, so a range is shown
+  assert.ok(o.plan.range.lo < o.plan.perWeek && o.plan.range.hi > o.plan.perWeek);
+  // today = day 6 (A's morning only), yesterday = A + B, split by the account active at each request
+  assert.equal(o.today.cost, 180);
+  assert.deepEqual(o.today.split.map((x) => [x.label, x.cost]), [['Alpha', 180]]);
+  assert.equal(o.yesterday.cost, 360);
+  assert.deepEqual(o.yesterday.split.map((x) => [x.label, x.cost]).sort(), [['Alpha', 180], ['Beta', 180]]);
+  assert.equal(o.today.planDays, Math.round(180 / (o.plan.perPct * 100 / 7) * 100) / 100);
+  // accounts: own rates, live % (status line newer than the switcher for A), spare $ and the active one
+  const [a, b] = o.accounts.list;
+  assert.equal(a.label, 'Alpha'); assert.equal(a.active, true); assert.equal(a.source, 'statusline');
+  assert.ok(Math.abs(a.pct - f.pA) < 0.1); assert.ok(Math.abs(a.perPct - 100) < 0.5, 'A ' + a.perPct); assert.equal(a.ownRate, true);
+  assert.equal(b.label, 'Beta'); assert.equal(b.active, false);
+  assert.ok(Math.abs(b.perPct - 50) < 0.5, 'B ' + b.perPct);
+  assert.equal(a.spare, Math.round((100 - a.pct) * a.perPct));
+  assert.equal(o.accounts.spare, a.spare + b.spare);
+  assert.equal(o.accounts.weekLimit, 96);
+  assert.ok(Number.isInteger(a.resetsAt) && Number.isInteger(a.updatedAt));
+  assert.ok(o.runway && o.runway.accounts === 2);
+  assert.equal(o.pace.last24h, 360); // yesterday 15:00-18:00 (B) and this morning (A)
+});
+
+test('plan value: without the switcher there is no account list; with too little data it falls back to the last value', () => {
+  const f = planFixture();
+  const o = srv.computePlanValue(f.hist, f.reqs, null, f.now, 'UTC', null);
+  assert.equal(o.accounts, null);
+  assert.equal(o.runway.accounts, 1); // only the active account counts
+  const none = srv.computePlanValue([], [], null, f.now, 'UTC', null);
+  assert.equal(none.ok, false); assert.equal(none.reason, 'need more data'); assert.equal(none.plan, null);
+  const last = srv.computePlanValue([], [], null, f.now, 'UTC', { perPct: 12.5, chunks: 20, at: f.now - 3 * 24 * HOUR });
+  assert.equal(last.ok, true); assert.equal(last.reason, 'last measured');
+  assert.equal(last.plan.stale, true); assert.equal(last.plan.perWeek, 1250); assert.equal(last.plan.measuredAt, f.now - 3 * 24 * HOUR);
+  assert.equal(last.plan.range, null);
+});
+
+test('plan value: runway drains the active account, then the soonest reset, and each reset refills', () => {
+  const now = BASE;
+  const acc = (pct, resetH, active) => ({ pct, resetsAt: now + resetH * HOUR, perPct: 10, active });
+  // $60 left on A (90% -> 96%), $960 on B, $10/h, no reset inside the run: 6 h + 96 h
+  const r1 = srv.pvRunway([acc(90, 150, true), acc(0, 150, false)], 10, now, 96);
+  assert.equal(r1.outlasts, false);
+  assert.equal(r1.until, now + 102 * HOUR);
+  assert.equal(r1.dryUntil, now + 150 * HOUR);
+  // A resets at 50 h while B is running: B lasts to 102 h, then A again, past the 7-day horizon
+  const r2 = srv.pvRunway([acc(90, 50, true), acc(0, 150, false)], 10, now, 96);
+  assert.equal(r2.outlasts, true); assert.equal(r2.until, null);
+  assert.deepEqual(r2.fills, [now + 6 * HOUR, now + 102 * HOUR]); // when each account first reaches the cap
+  assert.deepEqual(r1.fills, [now + 6 * HOUR, now + 102 * HOUR]);
+  assert.equal(srv.pvRunway([acc(10, 50, true)], 0, now, 96), null);
+});
+
+test('plan value: forecast from the usual day, the safe $/day, and when each account fills', () => {
+  const f = planFixture();
+  const sw = { profiles: [
+    { id: 'aaaaaaaaaaaa', label: 'Alpha', pct: 1, resetsAt: RA * 1000, fetchedAt: f.now - 2 * 24 * HOUR },
+    { id: 'bbbbbbbbbbbb', label: 'Beta', pct: f.pB, resetsAt: RB * 1000, fetchedAt: f.now - HOUR },
+  ], activeId: 'aaaaaaaaaaaa', activeAt: BASE, weekLimit: 96 };
+  const o = srv.computePlanValue(f.hist, f.reqs, sw, f.now, 'UTC', null);
+  assert.equal(o.pace.days, 6); // days 0-5 are full local days; day 6 is today
+  assert.equal(o.pace.usualDay, 360); assert.equal(o.pace.heavyDay, 360);
+  assert.equal(o.runway.perHour, 15); // the runway runs at the usual pace, not the last 24 h
+  assert.ok(['enough', 'tight', 'short'].includes(o.forecast.verdict));
+  assert.equal(o.forecast.usualDay, 360);
+  const ok = (perDay) => { const r = srv.pvRunway(o.accounts.list, perDay / 24, f.now, 96); return !r || r.outlasts; };
+  assert.equal(ok(o.forecast.safeDay), true); assert.equal(ok(o.forecast.safeDay + 1), false);
+  assert.equal(o.forecast.verdict === 'short', !ok(360));
+  for (const a of o.accounts.list) assert.ok(a.fullAt === null || Number.isInteger(a.fullAt));
+  assert.ok(Array.isArray(o.tips) && Array.isArray(o.effort));
+});
+
+test('plan value: tips from the logs (effort per prompt with helpers, Opus helpers on Sonnet 5.5, fast mode)', () => {
+  const t0 = BASE, reqs = [];
+  for (let i = 0; i < 30; i++) {
+    reqs.push({ ts: t0 + i * MIN, promptId: 'x' + i, effort: 'xhigh', model: 'claude-opus-5-5', cost: { total: 4 } });
+    reqs.push({ ts: t0 + i * MIN + 1, promptId: 'h' + i, effort: 'high', model: 'claude-opus-5-5', cost: { total: 2 } });
+  }
+  // a helper of a high prompt: counts toward that prompt's cost, and on Sonnet 5.5 ($2/M input) would cost $2 instead of $4
+  reqs.push({ ts: t0 + 2 * HOUR, promptId: 'h0', sidechain: true, model: 'claude-opus-5-5', input: 1e6, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, cost: { total: 4 } });
+  const o = srv.pvTips(reqs, t0, t0 + 24 * HOUR, 1, 'enough');
+  assert.deepEqual(o.effort.map((e) => [e.effort, e.prompts, e.perPrompt]), [['high', 30, 2.13], ['xhigh', 30, 4]]);
+  assert.deepEqual(o.tips.map((t) => [t.kind, t.savePerDay]), [['effort', 28], ['helpers', 2]]); // 120 x (1 - 2.13/4) / 2
+  assert.match(o.tips[0].text, /^xhigh prompts cost \$4 vs \$2\.13 on high/);
+  // same cost per prompt: no saving, one plain note that the higher effort is fine
+  const same = reqs.slice(0, 60).map((q) => ({ ...q, cost: { total: 3 } }));
+  const s = srv.pvTips(same, t0, t0 + 24 * HOUR, 1, 'enough');
+  assert.deepEqual(s.tips.map((t) => [t.kind, t.savePerDay]), [['effort', 0]]);
+  // fast mode: half of a 2x request is the surcharge
+  const fast = [{ ts: t0, promptId: 'f', effort: 'high', model: 'claude-opus-5-5', speed: 'fast', cost: { total: 20 } }];
+  assert.deepEqual(srv.pvTips(fast, t0, t0 + HOUR, 1, 'enough').tips.map((t) => [t.kind, t.savePerDay]), [['fast', 10]]);
+  assert.deepEqual(srv.pvTips([], t0, t0 + HOUR, 0, 'enough'), { effort: [], tips: [] });
+});
+
+test('plan value: local day bounds (no DST, and a DST change day)', () => {
+  assert.equal(srv.pvDayStart(Date.UTC(2026, 9, 30, 3), 'Asia/Dhaka'), Date.UTC(2026, 9, 29, 18));
+  assert.equal(srv.pvDayStart(Date.UTC(2026, 9, 29, 17, 59), 'Asia/Dhaka'), Date.UTC(2026, 9, 28, 18));
+  // US clocks go back on Sun 1 Nov 2026: local midnight was still PDT (UTC-7)
+  assert.equal(srv.pvDayStart(Date.UTC(2026, 10, 1, 20), 'America/Los_Angeles'), Date.UTC(2026, 10, 1, 7));
+  assert.equal(srv.pvDayStart(Date.UTC(2026, 9, 1, 0), 'UTC'), Date.UTC(2026, 9, 1));
+});
+
+test('plan value: the switcher folder is read for usage numbers and labels only', () => {
+  const dir = process.env.CCU_SWITCHER_DIR;
+  fs.mkdirSync(path.join(dir, 'profiles'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'profiles', 'aaaaaaaaaaaa.dat'), 'not json');
+  const s = Math.floor(Date.now() / 1000);
+  fs.writeFileSync(path.join(dir, 'usage.json'), JSON.stringify({
+    aaaaaaaaaaaa: { week: { pct: 20, resetsAt: s + 3 * 86400 }, fetchedAt: s - 60 },
+    bbbbbbbbbbbb: { week: { pct: 70, resetsAt: s + 86400 }, fetchedAt: s - 30 },
+    'not-an-id': { week: { pct: 5, resetsAt: s + 86400 } },
+  }));
+  fs.writeFileSync(path.join(dir, 'autoswitch.json'), JSON.stringify({ enabled: true, weekLimit: 96, lastSwitchAt: s - 10, lastTo: 'bbbbbbbbbbbb' }));
+  fs.writeFileSync(path.join(process.env.CCU_DATA_DIR, 'account-labels.json'), JSON.stringify({ bbbbbbbbbbbb: 'Main' }));
+  try {
+    const o = srv.planValuePayload();
+    assert.equal(o.accounts.count, 2);
+    assert.deepEqual(o.accounts.list.map((a) => [a.label, a.active, a.pct]), [['Main', true, 70], ['Account 2', false, 20]]);
+    assert.equal(o.accounts.weekLimit, 96);
+    assert.equal(o.accounts.list[0].spare, null); // nothing measured yet: no $ figure is invented
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(path.join(process.env.CCU_DATA_DIR, 'account-labels.json'), { force: true });
+  }
+});
+
+test('GET /api/plan-value and the widget plan helpers', async () => {
+  const server = await srv.start(0);
+  const port = server.address().port;
+  try {
+    const r = await new Promise((resolve, reject) => http.get({ port, path: '/api/plan-value', host: '127.0.0.1' }, (res) => {
+      let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => resolve({ status: res.statusCode, body: b }));
+    }).on('error', reject));
+    assert.equal(r.status, 200);
+    const j = JSON.parse(r.body);
+    assert.equal(typeof j.ok, 'boolean');
+    assert.ok('plan' in j && 'today' in j && 'yesterday' in j && 'accounts' in j);
+  } finally { server.close(); }
+  assert.equal(pulse.money(1470.4), '$1,470');
+  assert.equal(pulse.money(0), '$0');
+  assert.equal(pulse.planDaysText(0.93), '93% of a plan-day');
+  assert.equal(pulse.planDaysText(2.03), '2.0 plan-days');
+  assert.equal(pulse.planDaysText(1.01), '1.0 plan-day');
+  assert.equal(pulse.planScale(0.5, 0.9).top, 1.25);
+  assert.ok(Math.abs(pulse.planScale(2, 1).tick - 1 / 2.16) < 1e-9);
 });

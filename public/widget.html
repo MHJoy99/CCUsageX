@@ -73,6 +73,8 @@
           <section class="panel enter" id="sec-pace" style="--i:4"><div class="p1" id="paceA"></div><div class="p2" id="paceB"></div></section>
         </div>
 
+        <section class="panel enter" id="sec-plan" style="--i:5" data-empty="1" hidden></section>
+
         <section class="panel enter" id="sec-offline" style="--i:1" hidden>
           <div class="orb"></div><b>Usage server offline</b><span>The clock keeps running. Retrying quietly.</span>
         </section>
@@ -88,6 +90,7 @@
           <label class="row"><span>Weekly limit<small>usage ring and reset</small></span><input type="checkbox" data-sec="weekly"><i class="tg"></i></label>
           <label class="row"><span>Per-model weekly<small>for example Fable</small></span><input type="checkbox" data-sec="models"><i class="tg"></i></label>
           <label class="row"><span>Burn pace<small>estimate from your recent rate</small></span><input type="checkbox" data-sec="pace"><i class="tg"></i></label>
+          <label class="row"><span>Plan value<small>API-$ the plan gives, today, accounts</small></span><input type="checkbox" data-sec="plan"><i class="tg"></i></label>
         </div>
         <div class="seg" role="group" aria-label="Size"><button data-mode="expanded">Expanded</button><button data-mode="compact">Compact</button></div>
         <button class="done" id="done">Done</button>
