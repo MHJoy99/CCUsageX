@@ -60,7 +60,7 @@ Nothing is uploaded anywhere, and it needs nothing but Node.js 18+.
   projection and a small history, plus per-model weekly limits when Claude Code reports them. Read from Claude Code's own
   `/usage` report and refreshed automatically; see [Plan usage limits](#plan-usage-limits).
 - **Desktop widget.** A small always-visible Claude Pulse widget (Rainmeter on Windows, or any browser) with your limits,
-  burn pace and measured heavy hours; see [Desktop widget](#desktop-widget-windows-rainmeter).
+  a live "right now" coach, today by hour and measured heavy hours; see [Desktop widget](#desktop-widget-windows-rainmeter).
 - **Models, effort, speed.** Output tokens per second, response time (typical and slowest 5%), effort levels and
   Claude Code versions.
 - **Tools, sessions, projects.** Which tools ran how often, per-session and per-project breakdowns.
@@ -155,11 +155,16 @@ Details, including the data fields and the burn-rate projection, are in
 **Claude Pulse** is a small desktop widget that keeps your limits in sight while you work. It shows:
 
 - a **peak clock** with **your heavy hours** (measured from your own history) and the informational **US busy hours**,
-- the **5-hour** and **weekly** rings with reset times, and **per-model** weekly limits,
-- your **burn pace**, a **settings gear**, a **compact mode**, and a clear **offline** state when CCUsageX is not running,
+- **today by hour** under the clock (today's dollars per hour over your usual day),
+- the **5-hour** and **weekly** rings with reset times and where each lands by its reset, and **per-model** weekly limits,
+- a live **right now** coach: your last hour's $/h and whether that pace fits the rest of today ("Keep this pace till
+  2:10 PM", "Ease off by …"), what still fits today, and which account the switcher moves to next,
+- a **settings gear**, a **compact mode**, and a clear **offline** state when CCUsageX is not running,
 - the **plan value**: what your plan gives in API-equivalent dollars (measured, never typed in) against what you spent
   today and yesterday, and, with several saved accounts, each account's weekly % and the work left across all of them,
-- a plain **will it last?** answer for all accounts together ("safe up to $X/day"), and effort/model tips from your own logs.
+- a plain **will it last?** answer for all accounts together ("safe up to $X/day"), and effort/model tips from your own logs,
+- **insights**: the next 7 days of work left at your usual and heavy pace, and the last 14 days of spend, prompts,
+  cache, tokens, models and helpers.
 
 Install it on Windows with [Rainmeter](https://www.rainmeter.net) (CCUsageX must be running):
 

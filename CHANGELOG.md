@@ -5,6 +5,41 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-30
+
+### Added
+
+- **Right now** (widget): a live coach in one card. Your last hour's $/h with the last 2 hours in 5-minute bars, a
+  plain call ("Keep this pace till 2:10 PM", "Ease off by …", "This pace fits the rest of today", "Quiet right now"),
+  today's spend against what still fits today at the pace that lasts the week, and what fills next at this pace (the
+  5-hour window, the active account) with the account the switcher moves to. Replaces the one-line burn pace.
+- **Today by hour** (widget): a strip under the peak clock with today's dollars per hour over your usual day, the heavy
+  and US busy hours shaded like the clock, a now line, and a tooltip per hour.
+- **Ring projections** (widget): a lighter arc on the 5-hour and weekly rings shows where each lands by its reset at
+  the current pace; the line under the ring reads "Full by <time>" or "≈ N% by reset".
+- **Insights** (widget): *Next 7 days* (dollars left across the accounts at the usual and the heavy pace, today's
+  likely end, the week's load, the low point, what resets leave unused) and *Last 14 days* (daily spend against the
+  week before, per-day, prompts, cache hit and savings, tokens, models, helpers), each with hover tooltips.
+- `/api/plan-value` gains `live` (last hour, 5-minute steps, today and the usual day by hour, today's safe share),
+  `future` and `stats`. The dashboard's plan card shows a "Right now" box too.
+
+### Changed
+
+- **Each account at its own rate**: dollars per 1% are measured per account (else the last rate measured for it, else
+  the smallest plan's), so a Max and a Pro account no longer share one number. The headline is the week of all
+  accounts ("All 3 accounts ≈ $2,940"), and day bars compare with one day of all accounts.
+- The runway and the forecast follow CCSwitcherX's order (soonest week end first, then the bigger plan, then the least
+  used; slivers last; the early move when another week ends within 48 h), and spare dollars stop at the switcher's
+  `weekLimit`.
+- With several saved accounts, a full account is a switch, not a stop: the weekly tile shows "Full by <time>" instead
+  of a projection above 100% ("~215% at reset"), and the coach names the next account.
+- The plan card's "at your usual pace … is full" line moved into each account row's hover; the clock legend is one
+  row.
+
+### Fixed
+
+- The dashboard no longer shows "$0 per 1% weekly" when several accounts have different rates.
+
 ## [1.5.0] - 2026-10-30
 
 ### Added

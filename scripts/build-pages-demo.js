@@ -60,7 +60,7 @@ fs.writeFileSync(path.join(OUT, 'index.html'), html);
 // once it exists, its css/js must exist too and the transform must succeed, or the build throws.
 const WIDGET_SRC = path.join(ROOT, 'public', 'widget.html');
 if (fs.existsSync(WIDGET_SRC)) {
-  for (const f of ['widget.css', 'widget.js']) fs.copyFileSync(path.join(ROOT, 'public', f), path.join(OUT, f));
+  for (const f of ['widget.css', 'widget.js', 'pv-charts.js']) fs.copyFileSync(path.join(ROOT, 'public', f), path.join(OUT, f));
   const widgetStyle = `<style>
   html, body { overflow: auto !important; }
   .demo-caption { box-sizing: border-box; width: 100%; padding: 12px 14px 16px; text-align: center; font: 500 11px/1.4 -apple-system,'Segoe UI',system-ui,sans-serif; color: #6b6478; }

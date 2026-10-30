@@ -3,7 +3,7 @@
  * both configured in config.json > widget). Times are shown in the viewer's own time zone.
  * Test params: ?now=2026-10-14T19:00:00+06:00  ?api=http://127.0.0.1:1 (dead port -> offline state)  ?mode=compact
  *              ?panel=settings  ?bg=forest (dark backdrop for browser tests)  ?s=40&w=75 (override session/weekly %)  ?nostore=1
- *              ?heavy=21:00-03:00 (force a heavy range, server tz = browser tz)  ?still=1 (no motion) */
+ *              ?heavy=21:00-03:00 (force a heavy range, server tz = browser tz)  ?still=1 (no motion)  ?tab=stats (insights tab) */
 (function (root) {
   'use strict';
 
@@ -198,15 +198,42 @@
   function money(v) { v = Math.round(Number(v) || 0); return (v < 0 ? '-$' : '$') + String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   // one bar scale for today and yesterday with room past the busier day; the tick marks one plan-day
   function planScale(a, b) { var top = Math.max(1.25, (Number(a) || 0) * 1.08, (Number(b) || 0) * 1.08); return { top: top, tick: 1 / top }; }
-  function planDaysText(pd) {
+  // n > 1: the yardstick is one day of all n accounts, so the words drop "plan"
+  function planDaysText(pd, n) {
     if (pd == null) return '';
-    if (pd < 1) return Math.round(pd * 100) + '% of a plan-day';
+    var unit = n > 1 ? 'day' : 'plan-day';
+    if (pd < 1) return Math.round(pd * 100) + '% of a ' + unit;
     var t = pd.toFixed(1);
-    return t + (t === '1.0' ? ' plan-day' : ' plan-days');
+    return t + ' ' + unit + (t === '1.0' ? '' : 's');
+  }
+  // the account the switcher moves to next: soonest week end first, then the bigger plan, then the least used; one with
+  // under 5 points left before the switcher's limit is skipped
+  function nextAccount(acc) {
+    if (!acc || !acc.list || !(acc.count > 1)) return null;
+    var cap = acc.weekLimit > 0 && acc.weekLimit <= 100 ? acc.weekLimit : 100;
+    var c = acc.list.filter(function (a) { return !a.active && (a.pct || 0) < cap - 5; });
+    c.sort(function (x, y) { return (x.resetsAt || 0) - (y.resetsAt || 0) || (y.perWeek || 0) - (x.perWeek || 0) || (x.pct || 0) - (y.pct || 0); });
+    return c[0] || null;
+  }
+  // right now: can the last hour's $/h go on? today's safe share (restSafe) is what the rest of today may cost at the
+  // pace that lasts the week; at the current $/h it is used up at stopAt. kind: quiet | fits | until | stop | free | unknown
+  function coachOf(d, ms, dayEnd) {
+    var lv = d && d.ok && d.live;
+    if (!lv) return null;
+    var fc = d.forecast, burn = lv.lastHour || 0, rest = lv.restSafe, c = { burn: burn, rest: rest, stopAt: null, kind: 'quiet' };
+    if (fc && fc.safeDay != null && rest != null) {
+      if (burn >= 0.5) {
+        c.stopAt = ms + Math.max(0, rest) / burn * 3600e3;
+        c.kind = c.stopAt >= dayEnd ? 'fits' : c.stopAt - ms <= 45 * 60e3 ? 'stop' : 'until';
+      }
+    } else if (burn >= 0.5) c.kind = fc ? 'free' : 'unknown';
+    c.sev = c.kind === 'stop' ? 'high' : c.kind === 'until' ? 'warn' : 'ok';
+    return c;
   }
   var core = { CONFIG: CONFIG, stateAt: stateAt, nextChange: nextChange, inWindow: inWindow, bandsOf: bandsOf,
     legendOf: legendOf, dayStartMs: dayStartMs, fmtMin: fmtMin, fmtDur: fmtDur, parts: parts, applySchedule: applySchedule,
-    captionFor: captionFor, heavyWindows: heavyWindows, money: money, planScale: planScale, planDaysText: planDaysText };
+    captionFor: captionFor, heavyWindows: heavyWindows, money: money, planScale: planScale, planDaysText: planDaysText,
+    nextAccount: nextAccount, coachOf: coachOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   root.PulseCore = core;
   if (typeof document === 'undefined') return;
@@ -234,7 +261,7 @@
 
   /* settings (localStorage, wrapped) */
   var KEY = 'mhjoy.claudepulse.v1';
-  var DEFAULTS = { mode: 'expanded', show: { peak: true, usp: true, session: true, weekly: true, models: true, pace: true, plan: true } };
+  var DEFAULTS = { mode: 'expanded', tab: 'future', show: { peak: true, usp: true, session: true, weekly: true, models: true, pace: true, plan: true, insights: true } };
   function loadSettings() {
     var s = JSON.parse(JSON.stringify(DEFAULTS));
     if (Q.get('nostore')) return s;
@@ -243,6 +270,7 @@
       if (raw) {
         var o = JSON.parse(raw);
         if (o.mode === 'compact' || o.mode === 'expanded') s.mode = o.mode;
+        if (o.tab === 'future' || o.tab === 'stats') s.tab = o.tab;
         if (o.show) for (var k in s.show) if (typeof o.show[k] === 'boolean') s.show[k] = o.show[k];
       }
     } catch (e) { /* storage unavailable */ }
@@ -251,6 +279,7 @@
   function saveSettings() { if (Q.get('nostore')) return; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
   var S = loadSettings();
   if (Q.get('mode') === 'compact' || Q.get('mode') === 'expanded') S.mode = Q.get('mode');
+  if (Q.get('tab') === 'future' || Q.get('tab') === 'stats') S.tab = Q.get('tab');
 
   var card = $('card'), usage = null, online = null, lastOkAt = 0;
 
@@ -325,13 +354,15 @@
     for (i = 0; i < 4 && i < tx.length; i++) tx[i].textContent = TL[i];
     function lg(list) {
       if (!list.length) return 'none today';
-      return list.map(function (b) { return fmtMin(b[0]) + ' – ' + fmtMin(b[1]); }).join(', ');
+      return list.map(function (b) { return fmtMin(b[0]).replace(':00', '') + ' – ' + fmtMin(b[1]).replace(':00', ''); }).join(', ');
     }
     var learn = CONFIG.learn;
     $('lgMeasured').textContent = learn ? 'learning ' + learn.days + ' of ' + learn.minDays + ' days' : CONFIG.heavyKind === 'none' ? 'none' : lg(legendOf(ds, CONFIG.heavy));
-    $('lgMeasuredL').textContent = CONFIG.heavyKind === 'manual' ? 'Your heavy hours' : learn ? 'Your heavy hours' : 'Your heavy hours (measured)';
+    $('lgMeasuredL').textContent = 'Heavy hours';
+    $('lgMeasuredL').parentNode.title = CONFIG.heavyKind === 'manual' || learn ? 'Your heavy hours' : 'Your heavy hours, measured from your logs';
     $('lgOfficial').textContent = lg(legendOf(ds, CONFIG.official));
-    $('lgOfficialL').textContent = CONFIG.official.label;
+    $('lgOfficialL').textContent = CONFIG.official.label.replace(/ hours$/, '');
+    $('lgUs').title = CONFIG.official.label;
     $('lgUs').hidden = !usOn;
   }
 
@@ -399,6 +430,13 @@
     });
     shown[ids.k] = p;
     var rs = win.resetsAt, ms = now();
+    // where this window lands by its reset at the current pace (a lighter arc ahead of the used one)
+    var burn = typeof win.burnPerHour === 'number' && win.burnPerHour > 0.05 && rs > ms ? win.burnPerHour : 0;
+    var proj = burn && typeof win.projectedPctAtReset === 'number' ? Math.max(p, Math.min(100, win.projectedPctAtReset)) : p;
+    var pj = $(ids.pj), hits = burn && win.projectedHitAt > ms && win.projectedHitAt < rs;
+    pj.setAttribute('stroke-dasharray', C.toFixed(2));
+    pj.setAttribute('stroke-dashoffset', (C * (1 - proj / 100)).toFixed(2));
+    pj.style.setProperty('--pj', 'var(--' + sev(hits ? 100 : proj) + ')');
     var left = rs ? fmtDur(rs - ms) : '';
     if (rs && rs < ms) { $(ids.r1).textContent = 'Resetting'; $(ids.r2).innerHTML = '&nbsp;'; $(ids.rc).textContent = 'Resetting'; }
     else if (rs) {
@@ -409,16 +447,15 @@
       }
       $(ids.rc).textContent = 'Resets ' + fmtAt(rs) + '  ·  in ' + left;
     }
-    // hover detail
-    var a = [], b = [];
-    if (rs) a.push('Opened ' + fmtAt(win.startedAt || (rs - win.windowMs)));
-    if (typeof win.burnPerHour === 'number') b.push(win.burnPerHour.toFixed(1) + '%/h now');
-    if (typeof win.projectedPctAtReset === 'number' && win.burnPerHour > 0) b.push('~' + Math.round(win.projectedPctAtReset) + '% at reset');
-    $(ids.da).textContent = a[0] || '';
-    $(ids.db).textContent = b.length ? b.join('  ·  ') : (a[0] || '');
+    // the projection stays in view; the rate and the window's start show on hover
+    var opened = rs ? 'Opened ' + fmtAt(win.startedAt || (rs - win.windowMs)) : '';
+    var da = $(ids.da), line = hits ? 'Full by ' + fmtAt(win.projectedHitAt) : burn ? '\u2248 ' + Math.round(proj) + '% by reset' : opened;
+    da.textContent = line;
+    da.className = 'a' + (hits ? ' hot' : '');
+    $(ids.db).textContent = burn ? '+' + (burn < 10 ? burn.toFixed(1) : Math.round(burn)) + '%/h now' + (opened ? '  \u00b7  ' + opened.toLowerCase() : '') : opened;
   }
-  var SESS = { k: 'sess', arc: 'sessArc', bar: 'sessBar', num: 'sessNum', cv: 'sessCv', r1: 'sessR1', r2: 'sessR2', rc: 'sessRc', da: 'sessDA', db: 'sessDB' };
-  var WEEK = { k: 'week', arc: 'weekArc', bar: 'weekBar', num: 'weekNum', cv: 'weekCv', r1: 'weekR1', r2: 'weekR2', rc: 'weekRc', da: 'weekDA', db: 'weekDB' };
+  var SESS = { k: 'sess', arc: 'sessArc', pj: 'sessPj', bar: 'sessBar', num: 'sessNum', cv: 'sessCv', r1: 'sessR1', r2: 'sessR2', rc: 'sessRc', da: 'sessDA', db: 'sessDB' };
+  var WEEK = { k: 'week', arc: 'weekArc', pj: 'weekPj', bar: 'weekBar', num: 'weekNum', cv: 'weekCv', r1: 'weekR1', r2: 'weekR2', rc: 'weekRc', da: 'weekDA', db: 'weekDB' };
   var modelShown = {};
 
   function renderModels(list, firstTime) {
@@ -441,24 +478,80 @@
   }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
-  /* pace: only from the server's own burn estimate; omitted when it cannot be stated honestly */
-  function renderPace(w) {
-    var el = $('sec-pace'), ms = now(), a = '', b = '', sv = 'ok';
-    if (w && typeof w.burnPerHour === 'number' && w.burnPerHour > 0.05 && w.resetsAt > ms) {
-      if (w.willExceed && w.projectedHitAt && w.projectedHitAt > ms && w.projectedHitAt < w.resetsAt) {
-        sv = 'high';
-        a = 'At this pace weekly hits 100% in ' + fmtDur(w.projectedHitAt - ms);
-        b = fmtAt(w.projectedHitAt) + '  ·  ' + fmtDur(w.resetsAt - w.projectedHitAt) + ' before it resets (estimate)';
-      } else if (typeof w.projectedPctAtReset === 'number') {
-        sv = w.projectedPctAtReset >= 90 ? 'warn' : 'ok';
-        a = 'On pace for about ' + Math.round(w.projectedPctAtReset) + '% by the reset';
-        b = w.burnPerHour.toFixed(1) + '% per hour lately (estimate)';
-      }
+  /* right now: the last hour's $/h against today's safe share, and what fills next at this pace */
+  var PVC = root.PVCharts || null;
+  var SPK_O = { w: 74, h: 18, padL: 0, padR: 0, padT: 1, padB: 0, gap: 1, now: 23, label: '$ per 5 minutes over the last 2 hours' };
+  function usd2(v) { return '$' + (v >= 10 ? Math.round(v) : v.toFixed(2)); }
+  function dayEndMs(ms) { return dayStartMs(dayStartMs(ms) + 26 * 3600e3); }
+  function hitOf(w, ms) { return w && w.burnPerHour > 0.05 && w.projectedHitAt > ms && w.projectedHitAt < w.resetsAt ? w.projectedHitAt : 0; }
+  function coachLines(d, c, ms) {
+    var w = (usage && usage.windows) || {}, s5 = w.five_hour, s7 = w.seven_day, acc = d.accounts, nx = nextAccount(acc), out = [];
+    var on = acc && acc.list ? acc.list.filter(function (a) { return a.active; })[0] : null, then = nx ? ' \u2192 then ' + esc(nx.label) : '';
+    var h5 = hitOf(s5, ms), h7 = hitOf(s7, ms);
+    if (h5) out.push({ sev: nx ? 'warn' : 'high', html: '5h window full <b>' + esc(fmtAt(h5)) + '</b>' + (then || ' \u00b7 back ' + esc(fmtAt(s5.resetsAt))) });
+    else if (s5 && s5.usedPct >= 99.5 && s5.resetsAt > ms) out.push({ sev: nx ? 'warn' : 'high', html: '5h window full' + (then || ' \u00b7 back <b>' + esc(fmtAt(s5.resetsAt)) + '</b>') });
+    else if (s5 && s5.burnPerHour > 0.05 && typeof s5.projectedPctAtReset === 'number' && s5.resetsAt > ms) out.push({ sev: 'ok', html: '5h window \u2248 <b>' + Math.round(s5.projectedPctAtReset) + '%</b> by its reset ' + esc(fmtT(s5.resetsAt)) });
+    if (h7) out.push({ sev: nx ? 'warn' : 'high', html: esc(on ? on.label : 'Weekly') + ' full <b>' + esc(fmtAt(h7)) + '</b>' + (then || ' \u00b7 back ' + esc(fmtAt(s7.resetsAt))) });
+    var fc = d.forecast;
+    if ((c.kind === 'until' || c.kind === 'stop') && fc && fc.usualDay > 0) out.push({ sev: '', html: '$100 \u2248 <b>' + (2400 / fc.usualDay).toFixed(1) + ' h</b> of your usual day' });
+    return out.slice(0, 2);
+  }
+  function renderCoach() {
+    var el = $('sec-pace'), d = plan, ms = now(), c = coachOf(d, ms, dayEndMs(ms));
+    if (!c) { el.dataset.empty = '1'; el.innerHTML = ''; el._html = ''; return; }
+    var fc = d.forecast, rest = c.rest, n = d.accounts && d.accounts.count > 1 ? d.accounts.count : 1, t = '', sub = '';
+    var more = rest != null ? '\u2248 ' + money(rest) + ' more' : '';
+    if (c.kind === 'fits') { t = 'This pace fits the rest of today'; sub = more + ' fits today \u00b7 safe ' + money(fc.safeDay) + '/day'; }
+    else if (c.kind === 'until') { t = 'Keep this pace till <b>' + esc(fmtT(c.stopAt)) + '</b>'; sub = more + ' fits today, then ease off'; }
+    else if (c.kind === 'stop') {
+      t = rest >= 1 ? 'Ease off by <b>' + esc(fmtT(c.stopAt)) + '</b>' : 'Today\u2019s safe share is used';
+      sub = rest >= 1 ? 'Only ' + more + ' fits today at the safe pace' : 'More today comes out of the rest of the week';
     }
-    el.dataset.empty = a ? '0' : '1';
-    el.dataset.sev = sv;
-    el.style.setProperty('--sev', 'var(--' + sv + ')');
-    $('paceA').textContent = a; $('paceB').textContent = b;
+    else if (c.kind === 'free') { t = 'Any pace fits this week'; sub = (n > 1 ? 'All ' + n + ' accounts outlast' : 'Your account outlasts') + ' the week even flat out'; }
+    else if (c.kind === 'unknown') { t = 'Live spend, no forecast yet'; sub = 'The forecast needs a few days of logs and a measured plan'; }
+    else { t = 'Quiet right now'; sub = rest != null ? more + ' fits today \u00b7 safe ' + money(fc.safeDay) + '/day' : 'Nothing has run in the last hour'; }
+    var html = '<div class="co-top"><span class="m-cap">Right now</span>' + (PVC && d.live.recent ? '<div class="co-spark ix-chart" id="coSpark">' + PVC.stripSvg(d.live.recent, null, SPK_O) + '</div>' : '') +
+      '<b class="co-burn">' + usd2(c.burn) + '<small>/h</small></b></div>';
+    html += '<div class="co-t"><i>' + VERDICT_ICON[c.sev === 'high' ? 'short' : c.sev === 'warn' ? 'tight' : 'enough'] + '</i><div><b>' + t + '</b><small>' + sub + '</small></div></div>';
+    var td = d.today || {};
+    if (rest != null) {
+      var tot = (td.cost || 0) + Math.max(0, rest);
+      html += '<div class="co-m"><b>Today</b><div class="bar"><i id="coBar"></i></div><em>' + money(td.cost) + ' <small>of \u2248 ' + money(tot) + '</small></em></div>';
+    }
+    coachLines(d, c, ms).forEach(function (l) { html += '<div class="co-l"' + (l.sev ? ' data-sev="' + l.sev + '"' : '') + '><i></i><span>' + l.html + '</span></div>'; });
+    el.dataset.empty = '0';
+    el.dataset.sev = c.sev;
+    el.style.setProperty('--sev', 'var(--' + c.sev + ')');
+    if (el._html !== html) { el.innerHTML = html; el._html = html; }
+    if (rest != null) barTo('coBar', 'co', tot > 0 ? (td.cost || 0) / tot : 0, firstCoach);
+    firstCoach = false;
+    var sp = $('coSpark'), r0 = (d.now || ms) - 2 * 3600e3;
+    if (sp) PVC.attachStrip(sp, d.live.recent, null, SPK_O, function (i) {
+      var a = r0 + i * 300e3;
+      return { title: fmtT(a) + ' \u2013 ' + fmtT(a + 300e3), lines: [{ k: 'v', text: usd2(d.live.recent[i] || 0) }] };
+    });
+  }
+  var firstCoach = true;
+
+  /* today hour by hour against your usual day, under the clock (heavy and US busy hours shaded like the clock's arcs) */
+  var HR_O = { w: 268, h: 46, padL: 24, padR: 2, padT: 5, padB: 11, gap: 2, axis: true, label: '$ of work per hour today against your usual day' };
+  function renderHours() {
+    var wrap = $('hrWrap'), lv = plan && plan.ok ? plan.live : null, ms = now();
+    if (!PVC || !lv || !lv.hours) { wrap.dataset.empty = '1'; return; }
+    wrap.dataset.empty = '0';
+    var ds = dayStartMs(ms), at = Math.min(24, (ms - ds) / 3600e3), hNow = Math.min(23, Math.floor(at)), bands = [];
+    if (CONFIG.officialOn && S.show.usp) bandsOf(ds, CONFIG.official, 1440).forEach(function (b) { bands.push({ from: b[0] / 60, to: b[1] / 60, k: 'ofc' }); });
+    bandsOf(ds, CONFIG.heavy, 1440).forEach(function (b) { bands.push({ from: b[0] / 60, to: b[1] / 60, k: 'hv' }); });
+    var TL = H12 ? ['12A', '6A', '12P', '6P', '12A'] : ['00', '06', '12', '18', '24'];
+    var o = Object.assign({}, HR_O, { now: hNow, nowAt: at, bands: bands, ticks: [0, 6, 12, 18, 24].map(function (h, i) { return { at: h, text: TL[i] }; }) });
+    var svg = PVC.stripSvg(lv.hours, lv.usualHours, o), box = $('hrChart');
+    if (box._svg !== svg) { var tip = box.querySelector('.pvc-tip'); box.innerHTML = svg; if (tip) box.appendChild(tip); box._svg = svg; }
+    PVC.attachStrip(box, lv.hours, lv.usualHours, o, function (i) {
+      var lines = [];
+      if (i <= hNow) lines.push({ k: 'v', text: 'today ' + money(lv.hours[i]) + (i === hNow ? ' so far' : '') });
+      if (lv.usualHours) lines.push({ k: 'g', text: 'usual ' + money(lv.usualHours[i]) });
+      return lines.length ? { title: fmtMin(i * 60) + ' \u2013 ' + fmtMin((i + 1) * 60), lines: lines } : null;
+    });
   }
 
   var firstUsage = true;
@@ -471,7 +564,7 @@
     setTile('session', SESS, s5, firstUsage);
     setTile('weekly', WEEK, s7, firstUsage);
     renderModels(w.scoped, firstUsage);
-    renderPace(s7);
+    renderCoach();
     firstUsage = false;
     applyVisibility();
   }
@@ -494,6 +587,7 @@
     tight: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/></svg>',
     short: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 5l6 6M11 5l-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   };
+  var RATE_WORD = { own: 'measured', saved: 'last measured', assumed: 'assumed: smallest plan', pooled: 'all accounts' };
   // will the accounts carry the week? the answer in one line, plus the numbers behind it
   function verdictOf(d) {
     var fc = d.forecast;
@@ -513,18 +607,18 @@
     var el = $('sec-plan'), d = plan, first = firstPlan;
     if (!d || !d.ok || !d.plan) { el.dataset.empty = '1'; el.innerHTML = ''; return; }
     el.dataset.empty = '0';
-    var p = d.plan, html = '';
+    var p = d.plan, html = '', n = p.accounts > 1 ? p.accounts : 1;
     var wk = p.range ? money(p.range.lo) + '\u2013' + money(p.range.hi).slice(1) : money(p.perWeek);
     var note = p.stale && p.measuredAt ? ' <small class="old">(last measured ' + esc(fmtMdDtf.format(p.measuredAt)) + ')</small>' : p.range ? ' <small>(still measuring)</small>' : '';
-    html += '<div class="pv-top"><div class="m-cap">Plan value</div><span class="pv-day">\u2248 ' + money(p.perDay) + ' a day</span></div>';
+    html += '<div class="pv-top"><div class="m-cap">Plan value</div><span class="pv-day">\u2248 ' + money(p.perDay) + ' a day' + (n > 1 ? ' \u00b7 ' + n + ' accounts' : '') + '</span></div>';
     var vd = verdictOf(d);
     if (vd) html += '<div class="pv-v" data-v="' + vd.v + '"><i>' + VERDICT_ICON[vd.v] + '</i><div><b>' + vd.title + '</b><small>' + vd.sub + '</small>' + (vd.sub2 ? '<small>' + vd.sub2 + '</small>' : '') + '</div></div>';
-    html += '<div class="pv-h">Your plan \u2248 <b>' + wk + '</b><small> /week of API work</small>' + note + '</div>';
+    html += '<div class="pv-h">' + (n > 1 ? 'All ' + n + ' accounts' : 'Your plan') + ' \u2248 <b>' + wk + '</b><small> /week of API work</small>' + note + '</div>';
     var td = d.today || {}, yd = d.yesterday || {}, sc = planScale(td.planDays, yd.planDays);
     [['Today', td, 't'], ['Yesterday', yd, 'y']].forEach(function (x) {
       var v = x[1], pd = v.planDays;
       html += '<div class="pv-row" data-over="' + (pd > 1 ? 1 : 0) + '"><b>' + x[0] + '</b><div class="bar"><i id="pvb' + x[2] + '"></i><span class="pv-tick" style="left:' + (sc.tick * 100).toFixed(1) + '%"></span></div>' +
-        '<em>' + money(v.cost) + ' <small>\u00b7 ' + planDaysText(pd) + '</small></em></div>';
+        '<em>' + money(v.cost) + ' <small>\u00b7 ' + planDaysText(pd, n) + '</small></em></div>';
       var st = splitText(v.split);
       if (st) html += '<div class="pv-split">' + st + '</div>';
     });
@@ -533,19 +627,14 @@
       html += '<div class="pv-acc"><div class="pv-top"><div class="m-cap">Accounts</div><em>\u2248 ' + money(acc.spare) + ' of work left</em></div>';
       acc.list.forEach(function (a, i) {
         var pct = Math.max(0, Math.min(100, a.pct || 0));
-        html += '<div class="pv-a' + (a.active ? ' on' : '') + '" data-sev="' + sev(pct) + '" title="' + esc(a.label) + (a.spare != null ? ' \u00b7 \u2248 ' + money(a.spare) + ' left' : '') + (a.active ? ' \u00b7 active' : '') + '">' +
+        var rateTxt = a.perWeek ? ' of ' + money(a.perWeek) + '/wk (' + (RATE_WORD[a.rate] || 'rate') + ')' : '';
+        html += '<div class="pv-a' + (a.active ? ' on' : '') + '" data-sev="' + sev(pct) + '" title="' + esc(a.label) + (a.spare != null ? ' \u00b7 \u2248 ' + money(a.spare) + ' left' + rateTxt : '') + (a.active ? ' \u00b7 active' : '') + (a.fullAt ? ' \u00b7 full at your usual pace ' + esc(fmtAt(a.fullAt)) : '') + '">' +
           '<b><i></i>' + esc(a.label) + '</b><div class="bar"><i id="pva' + i + '"></i></div><em>' + Math.round(pct) + '%</em><span>' + esc(fmtAt(a.resetsAt)) + '</span></div>';
       });
       html += '</div>';
     }
     var rw = d.runway, fc = d.forecast;
-    if (fc) {
-      // when each account fills at the usual pace (inside the week)
-      var fills = (acc ? acc.list : []).filter(function (a) { return a.fullAt; }).sort(function (x, y) { return x.fullAt - y.fullAt; });
-      html += '<div class="pv-run">' + (fills.length
-        ? 'At your usual pace ' + fills.slice(0, 2).map(function (a) { return esc(a.label) + ' is full <b>' + esc(fmtAt(a.fullAt)) + '</b>'; }).join(', ')
-        : 'At your usual pace no account fills before it resets') + '</div>';
-    } else if (rw) {
+    if (!fc && rw) {
       var many = !!(acc && acc.count > 1), who = many ? 'All ' + acc.count + ' accounts' : 'This account';
       var rate = rw.perHour > 0 ? ' at ' + money(rw.perHour) + '/h' : '';
       html += '<div class="pv-run">' + (rw.outlasts ? who + (many ? ' outlast' : ' outlasts') + ' <b>the week</b>' + rate
@@ -559,6 +648,72 @@
     if (acc) acc.list.forEach(function (a, i) { barTo('pva' + i, 'a' + (a.id || i), Math.max(0, Math.min(100, a.pct || 0)) / 100, first); });
     firstPlan = false;
   }
+  /* insights: the week ahead ($ left across the accounts, as the switcher would move between them) and the last 14 days */
+  var IXW = 268;
+  var fmtDayDtf = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  var FUT_O = { w: IXW, h: 96, padL: 30, padR: 4, padT: 8, padB: 14, uid: 'ixf', nowLabel: 'now', minDayPx: 20, label: '$ of work left over the next 7 days at your usual and your heavy pace' };
+  var DAY_O = { w: IXW, h: 74, padL: 30, padR: 4, padT: 8, padB: 13, maxBar: 12, todayLabel: 'now', label: '$ of work per day over the last 14 days' };
+  function pctTxt(v) { return v == null ? '\u2013' : Math.round(v * 100) + '%'; }
+  function fact(k, v, sub, sv) { return '<div class="ix-f"' + (sv ? ' data-sev="' + sv + '"' : '') + '><span>' + k + '</span><b>' + v + '</b><small>' + sub + '</small></div>'; }
+  function todayBar(d) { return d.today && d.today.from ? { from: d.today.from, cost: d.today.cost } : null; }
+  function futureHtml(d) {
+    var f = d.future, fc = d.forecast || {}, n = (d.plan && d.plan.accounts) || 1, html = '';
+    var left = f.usual && f.usual.length ? f.usual[0][1] : 0, lo = PVC.lowOf(f.usual), dry = f.dry && f.dry[0], hdry = f.heavyDry && f.heavyDry[0];
+    html += '<div class="ix-h"><b>' + money(left) + '</b><small> of work left' + (n > 1 ? ' across ' + n + ' accounts' : '') + '</small></div>';
+    html += '<div class="ix-chart" id="ixFut">' + PVC.futureSvg(f, FUT_O) + '</div>';
+    html += '<div class="ix-leg"><span class="u"><i></i>usual ' + money(fc.usualDay) + '/day</span>' + (f.heavy ? '<span class="h"><i></i>heavy ' + money(fc.heavyDay) + '/day</span>' : '') +
+      (dry ? '<span class="d"><i></i>all full</span>' : '') + (hdry ? '<span class="dh"><i></i>full if heavy</span>' : '') + '</div>';
+    var t = f.today || {}, ld = f.load;
+    html += '<div class="ix-facts">';
+    html += fact('Today ends', '\u2248 ' + money(t.end), money(t.soFar) + ' so far \u00b7 usual ' + money(t.usualEnd), t.end > t.usualEnd * 1.25 ? 'warn' : '');
+    if (ld) html += fact('Week load', pctTxt(ld.usual), 'heavy ' + pctTxt(ld.heavy) + ' of ' + (n > 1 ? n + ' accounts' : 'the plan'), ld.usual > 1 ? 'high' : ld.heavy > 1 ? 'warn' : 'ok');
+    if (dry) html += fact('Runs dry', esc(fmtAt(dry[0])), 'back ' + esc(fmtAt(dry[1])), 'high');
+    else if (lo) html += fact('Low point', money(lo.v), esc(fmtAt(lo.t)) + (hdry ? ' \u00b7 heavy: dry ' + esc(fmtWd(hdry[0])) : ''), hdry ? 'warn' : '');
+    var nr = (f.expires || []).length;
+    html += fact('Wasted at resets', money(f.unused), nr ? nr + ' reset' + (nr > 1 ? 's' : '') + ' this week' : 'no reset this week', f.unused > 0 ? 'warn' : 'ok');
+    html += '</div>';
+    return html;
+  }
+  function statsHtml(d) {
+    var st = d.stats, html = '', ref = d.plan ? d.plan.perDay : null;
+    var ch = st.change == null ? '' : '<em>' + (st.change > 0 ? '+' : '\u2212') + Math.abs(Math.round(st.change * 100)) + '% vs week before</em>';
+    html += '<div class="ix-h"><b>' + money(st.week) + '</b><small> last 7 days</small>' + ch + '</div>';
+    html += '<div class="ix-chart" id="ixDays">' + PVC.daysSvg(st.series || [], todayBar(d), ref, Object.assign({ refLabel: ref ? (d.plan.accounts > 1 ? 'one day of all' : 'one plan-day') : '' }, DAY_O)) + '</div>';
+    html += '<div class="ix-leg"><span class="b"><i></i>last 7 days</span><span class="bp"><i></i>week before</span><span class="bt"><i></i>today so far</span></div>';
+    var mx = st.models || [], top = mx[0];
+    html += '<div class="ix-facts k3">';
+    html += fact('Per day', money(st.perDay), st.days + '-day average');
+    html += fact('Prompts', st.promptsPerDay + '/day', st.perPrompt != null ? '$' + st.perPrompt.toFixed(2) + ' each' : '');
+    html += fact('Cache hit', st.cacheHit != null ? (st.cacheHit * 100).toFixed(1) + '%' : '\u2013', 'saves ' + PVC.short$(st.cacheSavedPerDay) + '/day');
+    html += fact('Tokens', PVC.count(st.tokensPerDay) + '/day', PVC.count(st.outPerDay) + ' written');
+    html += fact(top ? esc(top.name) : 'Models', top ? pctTxt(top.share) : '\u2013', mx.slice(1, 3).map(function (m) { return esc(m.name) + ' ' + pctTxt(m.share); }).join(' \u00b7 ') || 'one model family');
+    html += fact('Helpers', pctTxt(st.helperShare), 'of $ in subagents');
+    html += '</div>';
+    return html;
+  }
+  function renderInsights() {
+    var el = $('sec-ins'), d = plan && plan.ok ? plan : null;
+    var hasF = !!(PVC && d && d.future && d.future.usual), hasS = !!(PVC && d && d.stats);
+    if (!hasF && !hasS) { el.dataset.empty = '1'; el.innerHTML = ''; return; }
+    el.dataset.empty = '0';
+    var tab = S.tab === 'stats' ? (hasS ? 'stats' : 'future') : (hasF ? 'future' : 'stats');
+    var html = '<div class="ix-tabs nodrag" role="tablist">' +
+      '<button role="tab" data-tab="future" aria-selected="' + (tab === 'future') + '"' + (hasF ? '' : ' disabled') + '>Next 7 days</button>' +
+      '<button role="tab" data-tab="stats" aria-selected="' + (tab === 'stats') + '"' + (hasS ? '' : ' disabled') + '>Last 14 days</button></div>';
+    html += '<div class="ix-body" data-tab="' + tab + '">' + (tab === 'future' ? futureHtml(d) : statsHtml(d)) + '</div>';
+    if (el.innerHTML !== html) el.innerHTML = html;
+    if (tab === 'future') PVC.attachFuture($('ixFut'), d.future, FUT_O, fmtAt);
+    else PVC.attachDays($('ixDays'), d.stats.series || [], todayBar(d), d.plan ? d.plan.perDay : null, DAY_O, function (ms) { return fmtDayDtf.format(ms); });
+  }
+  $('sec-ins').addEventListener('click', function (e) {
+    var b = e.target && e.target.closest && e.target.closest('button[data-tab]');
+    if (!b || b.disabled || S.tab === b.dataset.tab) return;
+    S.tab = b.dataset.tab; saveSettings();
+    var body = $('sec-ins').querySelector('.ix-body');
+    if (body && !REDUCED) { body.classList.add('swap'); setTimeout(function () { renderInsights(); reportSize(); }, 140); }
+    else { renderInsights(); reportSize(); }
+  });
+
   var planTimer = 0;
   function fetchPlan() {
     clearTimeout(planTimer);
@@ -567,7 +722,7 @@
     var delay = CONFIG.pollMs;
     fetch(apiBase + CONFIG.planUrl, { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
       .then(function (r) { if (r.status === 404) { delay = CONFIG.scheduleMs; return null; } if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (d) { plan = d && typeof d === 'object' && !d.error ? d : null; renderPlan(); applyVisibility(); })
+      .then(function (d) { plan = d && typeof d === 'object' && !d.error ? d : null; renderPlan(); renderInsights(); renderCoach(); renderHours(); applyVisibility(); })
       .catch(function () { delay = CONFIG.retryMs; /* keep the last answer; the offline state hides the card */ })
       .finally(function () { clearTimeout(to); planTimer = setTimeout(fetchPlan, delay); });
   }
@@ -648,7 +803,7 @@
     card.classList.toggle('mode-compact', S.mode === 'compact');
     card.classList.toggle('mode-expanded', S.mode !== 'compact');
     $('sec-peak').hidden = !sh.peak;
-    $('sec-offline').hidden = !off || !(sh.session || sh.weekly || sh.models || sh.pace || sh.plan);
+    $('sec-offline').hidden = !off || !(sh.session || sh.weekly || sh.models || sh.pace || sh.plan || sh.insights);
     var showU = !off && !!usage;
     $('usage').hidden = off;
     if (nodata) showU = false;
@@ -658,12 +813,14 @@
     $('tiles').hidden = bothOne === 0;
     $('tiles').classList.toggle('one', bothOne === 1);
     $('sec-models').hidden = !(sh.models && showU) || $('sec-models').dataset.empty === '1';
-    $('sec-pace').hidden = !(sh.pace && showU) || $('sec-pace').dataset.empty !== '0' || S.mode === 'compact';
+    $('sec-pace').hidden = !sh.pace || off || $('sec-pace').dataset.empty !== '0';
+    $('hrWrap').hidden = !sh.peak || off || $('hrWrap').dataset.empty !== '0' || S.mode === 'compact';
     $('sec-plan').hidden = !sh.plan || off || $('sec-plan').dataset.empty !== '0';
-    var any = sh.peak || sh.session || sh.weekly || sh.models || sh.pace || sh.plan;
+    $('sec-ins').hidden = !sh.insights || off || $('sec-ins').dataset.empty !== '0';
+    var any = sh.peak || sh.session || sh.weekly || sh.models || sh.pace || sh.plan || sh.insights;
     $('sec-empty').hidden = any;
     // re-trigger the entry animation for sections that just appeared
-    ['sec-peak', 'sec-session', 'sec-weekly', 'sec-models', 'sec-pace', 'sec-plan', 'sec-offline'].forEach(function (id) {
+    ['sec-peak', 'sec-session', 'sec-weekly', 'sec-models', 'sec-pace', 'sec-plan', 'sec-ins', 'sec-offline'].forEach(function (id) {
       var e = $(id), vis = !e.hidden;
       if (vis && e._wasHidden) { e.style.animation = 'none'; void e.offsetWidth; e.style.animation = ''; }
       e._wasHidden = !vis;
@@ -694,7 +851,7 @@
   document.querySelector('#view-settings').addEventListener('change', function (e) {
     var k = e.target && e.target.dataset && e.target.dataset.sec;
     if (!k) return;
-    S.show[k] = e.target.checked; saveSettings(); applyVisibility(); if (k === 'usp') scheduleChanged();
+    S.show[k] = e.target.checked; saveSettings(); applyVisibility(); if (k === 'usp') { scheduleChanged(); renderHours(); }
   });
   document.querySelector('.seg').addEventListener('click', function (e) {
     var m = e.target && e.target.dataset && e.target.dataset.mode;
@@ -763,5 +920,5 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { renderPeak(false); renderFooter(); } });
   if (Q.get('panel') === 'settings') { inSettings = false; showView(true); }
   // refresh reset countdown texts once a minute without refetching
-  setInterval(function () { if (!document.hidden && usage && online) { renderUsage(); renderPlan(); } }, 60000); // rings and bars keep their value (tween no-op)
+  setInterval(function () { if (!document.hidden && usage && online) { renderUsage(); renderPlan(); renderHours(); } }, 60000); // rings and bars keep their value (tween no-op)
 })(typeof window !== 'undefined' ? window : globalThis);

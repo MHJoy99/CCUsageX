@@ -48,6 +48,10 @@
             <div class="cd-v" id="cdValue">--</div>
             <div class="cd-s" id="cdSub">&nbsp;</div>
           </div>
+          <div class="hr" id="hrWrap" hidden>
+            <div class="hr-top"><span class="m-cap">Today by hour</span><span class="hr-leg"><span class="v"><i></i>today</span><span class="g"><i></i>your usual day</span></span></div>
+            <div class="ix-chart" id="hrChart"></div>
+          </div>
           <div class="legend">
             <div><i class="sw-h"></i><span id="lgMeasuredL">Your heavy hours</span><em id="lgMeasured">--</em></div>
             <div id="lgUs"><i class="sw-o"></i><span id="lgOfficialL">US busy hours</span><em id="lgOfficial">--</em></div>
@@ -59,7 +63,7 @@
             <section class="panel tile enter" id="sec-session" data-sev="ok" style="--i:1">
               <h4>5-hour session</h4>
               <div class="cv" id="sessCv">--</div>
-              <div class="ring"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"/><circle class="fg" id="sessArc" cx="50" cy="50" r="42"/></svg><div class="num"><span><b id="sessNum">--</b><small>%</small></span></div></div>
+              <div class="ring"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"/><circle class="pj" id="sessPj" cx="50" cy="50" r="42"/><circle class="fg" id="sessArc" cx="50" cy="50" r="42"/></svg><div class="num"><span><b id="sessNum">--</b><small>%</small></span></div></div>
               <div class="bar"><i id="sessBar"></i></div>
               <div class="r1" id="sessR1">--</div>
               <div class="r2" id="sessR2">&nbsp;</div>
@@ -69,7 +73,7 @@
             <section class="panel tile enter" id="sec-weekly" data-sev="ok" style="--i:2">
               <h4>Weekly limit</h4>
               <div class="cv" id="weekCv">--</div>
-              <div class="ring"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"/><circle class="fg" id="weekArc" cx="50" cy="50" r="42"/></svg><div class="num"><span><b id="weekNum">--</b><small>%</small></span></div></div>
+              <div class="ring"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"/><circle class="pj" id="weekPj" cx="50" cy="50" r="42"/><circle class="fg" id="weekArc" cx="50" cy="50" r="42"/></svg><div class="num"><span><b id="weekNum">--</b><small>%</small></span></div></div>
               <div class="bar"><i id="weekBar"></i></div>
               <div class="r1" id="weekR1">--</div>
               <div class="r2" id="weekR2">&nbsp;</div>
@@ -78,10 +82,11 @@
             </section>
           </div>
           <section class="panel enter" id="sec-models" style="--i:3"></section>
-          <section class="panel enter" id="sec-pace" style="--i:4"><div class="p1" id="paceA"></div><div class="p2" id="paceB"></div></section>
+          <section class="panel enter" id="sec-pace" style="--i:4" data-empty="1"></section>
         </div>
 
         <section class="panel enter" id="sec-plan" style="--i:5" data-empty="1" hidden></section>
+        <section class="panel enter" id="sec-ins" style="--i:6" data-empty="1" hidden></section>
 
         <section class="panel enter" id="sec-offline" style="--i:1" hidden>
           <div class="orb"></div><b>Usage server offline</b><span>The clock keeps running. Retrying quietly.</span>
@@ -97,8 +102,9 @@
           <label class="row"><span>5-hour session<small>usage ring and reset</small></span><input type="checkbox" data-sec="session"><i class="tg"></i></label>
           <label class="row"><span>Weekly limit<small>usage ring and reset</small></span><input type="checkbox" data-sec="weekly"><i class="tg"></i></label>
           <label class="row"><span>Per-model weekly<small>for example Fable</small></span><input type="checkbox" data-sec="models"><i class="tg"></i></label>
-          <label class="row"><span>Burn pace<small>estimate from your recent rate</small></span><input type="checkbox" data-sec="pace"><i class="tg"></i></label>
+          <label class="row"><span>Right now<small>live pace: when to push, when to stop</small></span><input type="checkbox" data-sec="pace"><i class="tg"></i></label>
           <label class="row"><span>Plan value<small>API-$ the plan gives, today, accounts</small></span><input type="checkbox" data-sec="plan"><i class="tg"></i></label>
+          <label class="row"><span>Forecast &amp; stats<small>next 7 days chart, last 14 days, habits</small></span><input type="checkbox" data-sec="insights"><i class="tg"></i></label>
         </div>
         <div class="seg" role="group" aria-label="Size"><button data-mode="expanded">Expanded</button><button data-mode="compact">Compact</button></div>
         <button class="done" id="done">Done</button>
@@ -113,6 +119,7 @@
     </footer>
   </div>
 </div>
+<script src="pv-charts.js"></script>
 <script src="api.js"></script>
 <script src="widget.js"></script>
 <div class="demo-caption" role="note">

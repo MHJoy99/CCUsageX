@@ -555,8 +555,16 @@ usualDay, heavyDay, days}`; `accounts` `{list[{id,label,active,pct,resetsAt,upda
 fullAt}], count, spare, weekLimit}` (null without the CCSwitcherX folder); `runway` `{until, dryUntil, outlasts,
 accounts, cap, perHour}` at the usual pace; `forecast` `{verdict (enough|tight|short), usualDay, heavyDay, safeDay,
 headroom, dryAt, backAt, heavyDryAt}`; `effort` `[{effort, prompts, perPrompt, share}]`; `tips` `[{kind (effort|
-helpers|fast|model), savePerDay, text}]`, savings first. The last good rate is
-kept in `~/.ccusagex/plan-value.json`. See [WIDGET.md](WIDGET.md#how-plan-value-is-measured).
+helpers|fast|model), savePerDay, text}]`, savings first. `plan.perPct` is null when the accounts have different
+rates (each account's own is in `accounts.list[].perPct`, `rate` own|saved|assumed|pooled, and `perWeek`).
+`live` `{lastHour ($ in the last 60 min), recent[24] ($ per 5 min over the last 2 h, oldest first), hours[24] (today
+per local hour), usualHours[24]|null (the usual day per hour), restSafe ($ that still fits today at the safe pace,
+spread like the usual day, at least half of the hours left)}`; `future` `{from, to, usual and heavy ([t, $ left]
+tracks), dry, heavyDry, expires[{label, at, usd}], unused, load{usual, heavy, week, accounts}, today{soFar, usualByNow,
+end, usualEnd}}`; `stats` `{days, cost, perDay, prompts, promptsPerDay, perPrompt, tokensPerDay, outPerDay, cacheHit,
+cacheSavedPerDay, helperShare, models[{name, share}], series[{from, cost}] (14 days), week, prevWeek, change}`.
+The last good rate per account is kept in `~/.ccusagex/plan-value.json`. See
+[WIDGET.md](WIDGET.md#how-plan-value-is-measured).
 ### Static files
 
 `GET /` serves `public/index.html`. Any other `GET` path maps to a file under `public/` (`app.js`, `charts.js`,

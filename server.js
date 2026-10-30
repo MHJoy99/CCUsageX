@@ -2396,7 +2396,8 @@ function burnHoursPayload() {
 // Every saved account is measured on its own: each $ interval belongs to the account whose weekly row is nearest in
 // time (the status line writes the ACTIVE account's row), never to the account active now. An account is its 7d
 // reset modulo one week, so the same account links across weeks.
-const PV = { WEEK_MS: 7 * 864e5, MATCH_MS: 120e3, NEAR_MS: 6 * 3600e3, MIN_CHUNKS: 3, MIN_DP: 10, OWN_CHUNKS: 3, THIN_REL: 0.1, SAVE_EVERY_MS: 10 * 60e3 };
+const PV = { WEEK_MS: 7 * 864e5, MATCH_MS: 120e3, NEAR_MS: 6 * 3600e3, MIN_CHUNKS: 3, MIN_DP: 10, OWN_CHUNKS: 3, THIN_REL: 0.1, SAVE_EVERY_MS: 10 * 60e3,
+  SLIVER: 5, EARLY_MS: 48 * 3600e3, EARLY_GAP_MS: 6 * 3600e3 };
 const pvDtf = new Map();
 function pvOffset(ms, tz) {
   let f = pvDtf.get(tz);
@@ -2429,31 +2430,58 @@ function pvRate(chunks) {
   return { perPct: 1 / rate, lo: 1 / hiRate, hi: 1 / loRate, chunks: n, dp, cost, rel: 2 * se / rate };
 }
 
-// Drain the accounts at perHour $/h: active first, then the one that resets soonest; every reset refills its account.
-// cap is where the switcher moves on (its weekLimit). Returns { until, dryUntil, outlasts, fills } where fills[i] is
-// when accts[i] first reaches the cap (null if it does not inside the horizon).
+// Drain the accounts at perHour $/h in the order CCSwitcherX (1.4.1) moves through them: the active one, then the one
+// with room whose week ends soonest (a tie goes to the bigger plan, then the least used; under PV.SLIVER % of room
+// sorts last), and an early move while the active one still has room when another account's week ends within 48 h
+// and at least 6 h before the active one's. Every reset refills its account. cap is where the switcher moves on (its
+// weekLimit). Returns { until, dryUntil, outlasts, fills, expires, track, dry }: until / dryUntil are the first time
+// every account is full and the reset that ends it; fills[i] is when accts[i] first reaches the cap (null if it does
+// not inside the horizon); expires lists the $ an account still holds when it resets (plan left unused); track is
+// [t, $ left across the accounts] at the start, every fill, move and reset (before and after the refill), exact with
+// straight lines in between; dry lists the [from, to] spans with every account full (the run goes on past them).
 function pvRunway(accts, perHour, now, cap, horizonMs = PV.WEEK_MS) {
   if (!(perHour > 0) || !accts.length) return null;
-  const fills = accts.map(() => null);
+  const fills = accts.map(() => null), expires = [], track = [], dry = [];
   const A = [];
   accts.forEach((a, i) => { if (a.perPct > 0) A.push({ i, used: a.pct, r: a.resetsAt, k: a.perPct, active: a.active }); });
   if (!A.length) return null;
-  const pick = () => A.filter((a) => a.used < cap - 1e-9).sort((x, y) => x.r - y.r)[0] || null;
-  let cur = A.find((a) => a.active && a.used < cap - 1e-9) || pick();
+  const room = (a) => !!a && a.used < cap - 1e-9, sliver = (a) => cap - a.used < PV.SLIVER;
+  const pick = () => A.filter(room).sort((x, y) => (sliver(x) - sliver(y)) || (x.r - y.r) || (y.k - x.k) || (x.used - y.used))[0] || null;
   const end = now + horizonMs;
-  let t = now;
-  for (let guard = 0; guard < 200 && t < end; guard++) {
+  let t = now, first = null;
+  const soonerThan = (a, c) => a !== c && room(a) && !sliver(a) && a.r <= c.r - PV.EARLY_GAP_MS;
+  const early = (c) => {
+    if (!room(c)) return c;
+    return A.filter((a) => soonerThan(a, c) && a.r - t <= PV.EARLY_MS).sort((x, y) => x.r - y.r)[0] || c;
+  };
+  let cur = early(A.find((a) => a.active && room(a)) || pick());
+  const mark = () => track.push([Math.round(t), Math.round(A.reduce((x, a) => x + Math.max(0, cap - a.used) * a.k, 0))]);
+  mark();
+  for (let guard = 0; guard < 400 && t < end; guard++) {
     const nextReset = Math.min(...A.map((a) => a.r));
-    if (!cur) return { until: t, dryUntil: nextReset, outlasts: false, fills };
-    const emptyAt = t + (cap - cur.used) * cur.k / perHour * 3600e3;
-    if (emptyAt <= nextReset && emptyAt < end) { cur.used = cap; t = emptyAt; if (fills[cur.i] == null) fills[cur.i] = Math.round(t); cur = pick(); continue; }
-    const t2 = Math.min(nextReset, end);
-    cur.used += (t2 - t) / 3600e3 * perHour / cur.k;
-    t = t2;
-    for (const a of A) while (a.r <= t) { a.used = 0; a.r += PV.WEEK_MS; }
-    if (!cur) cur = pick();
+    if (!cur) {
+      if (!first) first = { until: t, dryUntil: nextReset };
+      const t2 = Math.min(nextReset, end);
+      dry.push([Math.round(t), Math.round(t2)]);
+      t = t2;
+      mark();
+    } else {
+      // the next time another account's week end comes inside the early-move window
+      let nextWin = Infinity;
+      for (const a of A) if (soonerThan(a, cur) && a.r - PV.EARLY_MS > t) nextWin = Math.min(nextWin, a.r - PV.EARLY_MS);
+      const t2 = Math.min(nextReset, nextWin, end);
+      const emptyAt = t + (cap - cur.used) * cur.k / perHour * 3600e3;
+      if (emptyAt <= t2 && emptyAt < end) { cur.used = cap; t = emptyAt; mark(); if (fills[cur.i] == null) fills[cur.i] = Math.round(t); cur = early(pick()); continue; }
+      cur.used += (t2 - t) / 3600e3 * perHour / cur.k;
+      t = t2;
+      mark();
+    }
+    let refilled = false;
+    for (const a of A) while (a.r <= t) { expires.push({ i: a.i, at: Math.round(a.r), usd: Math.round(Math.max(0, cap - a.used) * a.k) }); a.used = 0; a.r += PV.WEEK_MS; refilled = true; }
+    if (refilled) mark();
+    cur = early(room(cur) ? cur : pick());
   }
-  return { until: null, dryUntil: null, outlasts: true, fills };
+  return { until: first ? first.until : null, dryUntil: first ? first.dryUntil : null, outlasts: !first, fills, expires, track, dry };
 }
 
 // The highest steady $/day the accounts carry for a whole week without running dry (accounts refill at their resets).
@@ -2536,25 +2564,66 @@ function pvTips(reqs, from, to, days, verdict) {
   return { effort, tips: save.concat(info) };
 }
 
+// How you work, from the full days [from, to) of the logs: prompts, tokens, cache, helpers and models. Caching saves
+// what the cached and cache-written prompt tokens would have cost as plain input, net of the cache-write surcharge.
+const PV_FAMILY = [['Fable', /fable|mythos/], ['Opus', /opus/], ['Sonnet', /sonnet/], ['Haiku', /haiku/]];
+function pvStats(reqs, from, to, days) {
+  if (!(days > 0)) return null;
+  let a = 0, b = reqs.length;
+  while (a < b) { const m = (a + b) >> 1; if (reqs[m].ts < from) a = m + 1; else b = m; }
+  let cost = 0, side = 0, tIn = 0, tRead = 0, tWrite = 0, tOut = 0, saved = 0;
+  const prompts = new Set(), fam = new Map();
+  for (let i = a; i < reqs.length && reqs[i].ts < to; i++) {
+    const q = reqs[i];
+    if (!q.cost) continue;
+    const c = q.cost.total || 0;
+    cost += c;
+    if (q.sidechain) side += c;
+    if (q.promptId) prompts.add(q.promptId);
+    if (typeof q.input === 'number') {
+      const w = (q.cacheWrite5m || 0) + (q.cacheWrite1h || 0);
+      tIn += q.input; tRead += q.cacheRead || 0; tWrite += w; tOut += q.output || 0;
+      if (q.cacheRead > 0 || w > 0) {
+        const plain = computeCost({ ...q, input: q.input + (q.cacheRead || 0) + w, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 });
+        if (plain) saved += plain.total - c;
+      }
+    }
+    const f = PV_FAMILY.find(([, re]) => re.test(q.model || ''));
+    fam.set(f ? f[0] : 'Other', (fam.get(f ? f[0] : 'Other') || 0) + c);
+  }
+  if (!(cost > 0)) return null;
+  const ctx = tIn + tRead + tWrite;
+  return {
+    days, cost: Math.round(cost), perDay: Math.round(cost / days),
+    prompts: prompts.size, promptsPerDay: Math.round(prompts.size / days), perPrompt: prompts.size ? r2(cost / prompts.size) : null,
+    tokensPerDay: Math.round((ctx + tOut) / days), outPerDay: Math.round(tOut / days),
+    cacheHit: ctx > 0 ? Math.round(tRead / ctx * 1000) / 1000 : null, cacheSavedPerDay: Math.round(saved / days),
+    helperShare: r2(side / cost),
+    models: [...fam.entries()].map(([name, v]) => ({ name, share: r2(v / cost) })).filter((m) => m.share >= 0.01).sort((x, y) => y.share - x.share),
+  };
+}
+
 // hist: limits history; reqs ascending with .cost; sw: { profiles: [{id, label, pct, resetsAt(ms), fetchedAt(ms)}],
 // activeId, activeAt, weekLimit } or null; last: { perPct, lo, hi, chunks, at } from the last good measurement or null.
 function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last = null) {
   hist = hist || []; reqs = reqs || [];
   const { chunks, events } = bhChunks(hist, reqs);
-  const kept = bhKeep(chunks).filter((c) => c.t2 > now - PV.WEEK_MS);
+  // outliers are judged per account: plans burn the weekly % at very different $ rates (a Pro week fills ~4-5x faster
+  // than a Max 5x one), so one median over every account would drop all of a smaller plan's chunks as "used elsewhere"
+  const groups = [];
+  for (const c of chunks) {
+    const k = pvSlot(c.a * 1000);
+    let g = groups.find((x) => pvSameSlot(x.k, k));
+    if (!g) groups.push(g = { k, cs: [] });
+    g.cs.push(c);
+  }
+  const kept = groups.flatMap((g) => bhKeep(g.cs)).filter((c) => c.t2 > now - PV.WEEK_MS);
   const pooled = pvRate(kept);
   const measured = !!(pooled && pooled.chunks >= PV.MIN_CHUNKS && pooled.dp >= PV.MIN_DP);
   let plan = null;
   if (measured) plan = { perPct: pooled.perPct, lo: pooled.lo, hi: pooled.hi, chunks: pooled.chunks, at: now, stale: false, thin: pooled.chunks < 6 || pooled.rel > PV.THIN_REL };
   else if (last && last.perPct > 0) plan = { perPct: last.perPct, lo: last.lo || last.perPct, hi: last.hi || last.perPct, chunks: last.chunks || 0, at: last.at || null, stale: true, thin: false };
-  const out = { ok: !!plan, timeZone: tz, now, plan: null, today: null, yesterday: null, pace: null, accounts: null, runway: null, forecast: null, effort: [], tips: [], reason: plan ? (measured ? 'measured' : 'last measured') : 'need more data' };
-  if (plan) {
-    out.plan = {
-      perPct: r2(plan.perPct), perWeek: Math.round(plan.perPct * 100), perDay: Math.round(plan.perPct * 100 / 7),
-      range: plan.thin ? { lo: Math.round(plan.lo * 100), hi: Math.round(plan.hi * 100) } : null,
-      chunks: plan.chunks, thin: plan.thin, stale: plan.stale, measuredAt: plan.at,
-    };
-  }
+  const out = { ok: !!plan, timeZone: tz, now, plan: null, today: null, yesterday: null, pace: null, accounts: null, runway: null, forecast: null, future: null, stats: null, effort: [], tips: [], reason: plan ? (measured ? 'measured' : 'last measured') : 'need more data' };
   // accounts: the switcher's profiles plus the ones seen in history
   const slots = [];
   const slotOf = (rMs) => { const k = pvSlot(rMs); let s = slots.find((x) => pvSameSlot(x.slot, k)); if (!s) slots.push(s = { slot: k, id: null, label: null, sw: null }); return s; };
@@ -2588,14 +2657,13 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
   };
   const dayStart = pvDayStart(now, tz), yStart = pvDayStart(dayStart - 1, tz);
   const today = sumSpan(dayStart, now + 1), yday = sumSpan(yStart, dayStart), last24 = sumSpan(now - 864e5, now + 1);
-  // per-account rate: its own kept chunks when it has enough, else the pooled rate
+  // per-account rate: its own kept chunks of the last 7 days; else the last rate measured for it (saved by id); else the
+  // lowest rate known for any listed account (an unmeasured plan is taken to be the smaller one, so the forecast never
+  // promises work an account cannot carry); else the pooled rate
   const own = new Map();
   for (const c of kept) { const s = slotOf(c.a * 1000); if (!own.has(s)) own.set(s, []); own.get(s).push(c); }
-  const perPctOf = (s) => {
-    const o = own.get(s);
-    const r = o && o.length >= PV.OWN_CHUNKS ? pvRate(o) : null;
-    return r && r.dp >= PV.MIN_DP ? { v: r.perPct, own: true } : (plan ? { v: plan.perPct, own: false } : null);
-  };
+  const ownOf = (s) => { const o = own.get(s), r = o && o.length >= PV.OWN_CHUNKS ? pvRate(o) : null; return r && r.dp >= PV.MIN_DP ? r.perPct : null; };
+  const savedOf = (s) => { const x = s.id && last && last.acc && last.acc[s.id]; return x && x.perPct > 0 ? x.perPct : null; };
   // active: the account of the newest status-line row, unless the switcher moved on after it
   const lastEv = events.length ? events.length - 1 : -1;
   let activeSlot = lastEv >= 0 ? evSlot[lastEv] : null;
@@ -2609,44 +2677,85 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
     if (pct == null || !(resetsAt > 0)) continue;
     if (!p && resetsAt <= now - PV.WEEK_MS) continue; // an old week seen only in history
     if (resetsAt <= now) { pct = 0; while (resetsAt <= now) resetsAt += PV.WEEK_MS; }
-    const k = perPctOf(s);
-    acc.push({ key: s, id: s.id, label: s.label, active: s === activeSlot, pct: Math.round(pct * 10) / 10, resetsAt: Math.round(resetsAt), updatedAt: at ? Math.round(at) : null, source: src,
-      perPct: k ? r2(k.v) : null, ownRate: !!(k && k.own), spare: k ? Math.round(Math.max(0, 100 - pct) * k.v) : null });
+    acc.push({ key: s, id: s.id, label: s.label, active: s === activeSlot, pct: Math.round(pct * 10) / 10, resetsAt: Math.round(resetsAt), updatedAt: at ? Math.round(at) : null, source: src });
+  }
+  const known = acc.map((a) => ownOf(a.key) || savedOf(a.key)).filter((v) => v > 0), lowest = known.length ? Math.min(...known) : null;
+  // the switcher moves on at its weekLimit, so the work left in an account is what it holds below that line
+  const cap = sw && sw.weekLimit > 0 && sw.weekLimit <= 100 ? sw.weekLimit : 100;
+  for (const a of acc) {
+    const o = ownOf(a.key), sv = o ? null : savedOf(a.key);
+    const v = o || sv || lowest || (plan ? plan.perPct : null);
+    a.perPct = v ? r2(v) : null;
+    a.ownRate = !!o;
+    a.rate = o ? 'own' : sv ? 'saved' : lowest ? 'assumed' : v ? 'pooled' : null;
+    a.perWeek = v ? Math.round(v * 100) : null;
+    a.spare = v ? Math.round(Math.max(0, cap - a.pct) * v) : null;
   }
   acc.sort((a, b) => (b.active - a.active) || (a.resetsAt - b.resetsAt));
   acc.forEach((a, i) => { if (!a.label) a.label = 'Account ' + (i + 1); });
   const labelOf = (s) => { const a = acc.find((x) => x.key === s); return a ? a.label : 'Earlier account'; };
+  // what the accounts you can move between are worth in a week, each at its own rate: the headline and the yardstick
+  // of a plan-day (without the switcher only the active account counts)
+  const capAcc = sw ? acc : acc.filter((a) => a.active);
+  const capWeek = capAcc.length && capAcc.every((a) => a.perPct > 0) ? capAcc.reduce((x, a) => x + a.perPct * 100, 0) : plan ? plan.perPct * 100 : 0;
+  if (plan) {
+    const one = capAcc.length <= 1, scale = plan.perPct > 0 ? capWeek / (plan.perPct * 100) : 1;
+    out.plan = {
+      perPct: one ? r2(capWeek / 100) : null, perWeek: Math.round(capWeek), perDay: Math.round(capWeek / 7), accounts: Math.max(1, capAcc.length),
+      range: plan.thin && one ? { lo: Math.round(plan.lo * 100 * scale), hi: Math.round(plan.hi * 100 * scale) } : null,
+      chunks: plan.chunks, thin: plan.thin, stale: plan.stale, measuredAt: plan.at,
+    };
+  }
+  out._save = { pooled: plan && !plan.stale && !plan.thin ? { perPct: plan.perPct, chunks: plan.chunks } : null,
+    acc: acc.filter((a) => a.ownRate && a.id).map((a) => [a.id, a.perPct]) };
   const day = (d) => {
     const split = [];
     for (const [s, c] of d.split) split.push({ id: s.id, label: labelOf(s), cost: r2(c) });
     if (d.unknown > 0.005) split.push({ id: null, label: 'Unattributed', cost: r2(d.unknown) });
     split.sort((a, b) => b.cost - a.cost);
-    return { from: d.from, to: Math.min(d.to, now), cost: r2(d.cost), unpriced: d.unpriced, planDays: plan ? Math.round(d.cost / (plan.perPct * 100 / 7) * 100) / 100 : null, split };
+    return { from: d.from, to: Math.min(d.to, now), cost: r2(d.cost), unpriced: d.unpriced, planDays: capWeek > 0 ? Math.round(d.cost / (capWeek / 7) * 100) / 100 : null, split };
   };
   out.today = day(today);
   out.yesterday = day(yday);
   // your usual day: the last 7 full local days (fewer when the logs are younger); the busiest of them is the heavy day
+  // (the 14 full days before today feed the trend; the hour-of-day profile of the usual days projects the rest of today)
   const firstReq = reqs.length ? reqs[0].ts : now;
-  const dayCosts = [];
+  const dayCosts = [], series = [], prof = new Array(24).fill(0);
   let oldest = dayStart;
-  for (let e = dayStart, i = 0; i < 7; i++) {
+  for (let e = dayStart, i = 0; i < 14; i++) {
     const s = pvDayStart(e - 1, tz);
     if (e <= firstReq) break;
-    dayCosts.push(sumSpan(s, e).cost);
-    e = oldest = s;
+    const c = sumSpan(s, e).cost;
+    series.unshift({ from: s, cost: r2(c) });
+    if (i < 7) {
+      dayCosts.push(c);
+      oldest = s;
+      for (let j = firstAt(s); j < reqs.length && reqs[j].ts < e; j++) if (reqs[j].cost) prof[Math.min(23, Math.floor((reqs[j].ts - s) / 3600e3))] += reqs[j].cost.total || 0;
+    }
+    e = s;
   }
   const usualDay = dayCosts.length ? dayCosts.reduce((x, v) => x + v, 0) / dayCosts.length : 0;
   const heavyDay = dayCosts.length ? Math.max(...dayCosts, today.cost) : today.cost;
   out.pace = { perHour: r2(last24.cost / 24), last24h: r2(last24.cost), usualDay: Math.round(usualDay), heavyDay: Math.round(heavyDay), days: dayCosts.length };
+  // right now: $ in the last hour, the last 2 hours in 5-minute steps, and today and your usual day hour by hour
+  // (restSafe, set with the forecast below: what the rest of today may cost at the safe pace)
+  const recent = new Array(24).fill(0), hours = new Array(24).fill(0), r0 = now - 2 * 3600e3;
+  let lastHour = 0;
+  for (let j = firstAt(Math.min(r0, dayStart)); j < reqs.length && reqs[j].ts <= now; j++) {
+    const q = reqs[j], c = q.cost ? q.cost.total || 0 : 0;
+    if (q.ts >= r0) recent[Math.min(23, Math.floor((q.ts - r0) / 300e3))] += c;
+    if (q.ts > now - 3600e3) lastHour += c;
+    if (q.ts >= dayStart) hours[Math.min(23, Math.floor((q.ts - dayStart) / 3600e3))] += c;
+  }
+  out.live = { lastHour: r2(lastHour), recent: recent.map(r2), hours: hours.map(r2), usualHours: dayCosts.length ? prof.map((v) => r2(v / dayCosts.length)) : null, restSafe: null };
   const accounts = acc.map(({ key, ...a }) => a);
-  const cap = sw && sw.weekLimit > 0 && sw.weekLimit <= 100 ? sw.weekLimit : 100;
   if (sw) out.accounts = { list: accounts, count: accounts.length, spare: Math.round(accounts.reduce((x, a) => x + (a.spare || 0), 0)), weekLimit: cap };
   // without the switcher only the active account counts: nothing moves you to another one
   const pool = sw ? accounts : accounts.filter((a) => a.active);
   const rwPerHour = usualDay > 0 ? usualDay / 24 : out.pace.perHour;
   const rw = pool.length ? pvRunway(pool, rwPerHour, now, cap) : null;
   if (rw) {
-    const { fills, ...r } = rw;
+    const { fills, expires, track, dry, ...r } = rw;
     out.runway = { ...r, accounts: pool.length, cap, perHour: r2(rwPerHour) };
     pool.forEach((a, i) => { a.fullAt = fills[i]; });
   }
@@ -2662,6 +2771,31 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
       dryAt: usualOk ? null : rw.until, backAt: usualOk ? null : rw.dryUntil,
       heavyDryAt: heavyOk ? null : heavy.until,
     };
+    // the week ahead: $ left across the accounts at the usual and the heavy pace, what each reset leaves unused, how
+    // much of a week's worth of all the accounts a usual / heavy week takes, and today's end if the rest of it goes like
+    // your usual days
+    const hNow = Math.min(23, Math.floor((now - dayStart) / 3600e3)), frac = ((now - dayStart) % 3600e3) / 3600e3;
+    let byNow = 0, rest = 0;
+    for (let h = 0; h < 24; h++) {
+      const v = prof[h] / dayCosts.length;
+      if (h < hNow) byNow += v; else if (h > hNow) rest += v; else { byNow += v * frac; rest += v * (1 - frac); }
+    }
+    // the safe pace spread over the rest of today the way your usual days spread (never less than half the hours left)
+    const share = Math.max(byNow + rest > 0 ? rest / (byNow + rest) : 0, (1 - (now - dayStart) / 86400e3) * 0.5);
+    out.live.restSafe = safeDay != null ? Math.round(safeDay * share) : null;
+    const expires = rw.expires.map((x) => ({ label: pool[x.i].label, at: x.at, usd: x.usd }));
+    out.future = {
+      from: now, to: now + PV.WEEK_MS, usual: rw.track, heavy: heavy ? heavy.track : null, dry: rw.dry, heavyDry: heavy ? heavy.dry : null,
+      expires, unused: expires.reduce((x, e) => x + e.usd, 0),
+      load: capWeek > 0 ? { usual: r2(usualDay * 7 / capWeek), heavy: r2(heavyDay * 7 / capWeek), week: Math.round(capWeek), accounts: pool.length } : null,
+      today: { soFar: r2(today.cost), usualByNow: Math.round(byNow), end: Math.round(today.cost + rest), usualEnd: Math.round(usualDay) },
+    };
+  }
+  const st = pvStats(reqs, oldest, dayStart, dayCosts.length);
+  if (st) {
+    const full = series.length >= 14, sum = (xs) => xs.reduce((x, d) => x + d.cost, 0);
+    const wk = sum(series.slice(-7)), prev = full ? sum(series.slice(0, 7)) : 0;
+    out.stats = { ...st, series, week: Math.round(wk), prevWeek: full ? Math.round(prev) : null, change: full && prev > 0 ? r2(wk / prev - 1) : null };
   }
   const lg = pvTips(reqs, oldest, dayStart, dayCosts.length, out.forecast && out.forecast.verdict);
   out.effort = lg.effort;
@@ -2702,10 +2836,13 @@ function readSwitcher() {
 let pvLast = pvReadJson(PLAN_FILE);
 function planValuePayload() {
   limitsRefresh(2000);
-  const out = computePlanValue(LIM.hist.points, sortedList(), readSwitcher(), Date.now(), bhZone(), pvLast);
-  const p = out.plan;
-  if (p && !p.stale && !p.thin && (!pvLast || Date.now() - (pvLast.at || 0) > PV.SAVE_EVERY_MS)) {
-    pvLast = { perPct: p.perPct, lo: p.perPct, hi: p.perPct, chunks: p.chunks, at: Date.now() };
+  const { _save: sv, ...out } = computePlanValue(LIM.hist.points, sortedList(), readSwitcher(), Date.now(), bhZone(), pvLast);
+  const now = Date.now();
+  if (sv && (sv.pooled || sv.acc.length) && (!pvLast || now - (pvLast.savedAt || pvLast.at || 0) > PV.SAVE_EVERY_MS)) {
+    const prev = pvLast || {}, acc = { ...(prev.acc || {}) };
+    for (const [id, perPct] of sv.acc) acc[id] = { perPct, at: now };
+    pvLast = sv.pooled ? { perPct: sv.pooled.perPct, lo: sv.pooled.perPct, hi: sv.pooled.perPct, chunks: sv.pooled.chunks, at: now, acc, savedAt: now }
+      : { ...prev, acc, savedAt: now };
     try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(PLAN_FILE, JSON.stringify(pvLast)); } catch { /* keep it in memory */ }
   }
   return out;
@@ -2832,6 +2969,6 @@ if (require.main === module) {
 
 module.exports = {
   start, createServer, handle, scan, scanFile, handleLine, loadStore, saveStore, resetState, newFstate,
-  computeBurnHours, burnHoursPayload, computePlanValue, planValuePayload, pvRunway, pvSafeDay, pvTips, pvDayStart, liveState, stopLive, computeLimits, limitsPayload, probeStart, probeStop, probeRun, probeRefresh, probePublic, probeParseOutput, probeSnapshot, probeResolveBin, probeInterval, probeTouch, _probe: PROBE, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
+  computeBurnHours, burnHoursPayload, computePlanValue, planValuePayload, pvRunway, pvSafeDay, pvTips, pvStats, pvDayStart, liveState, stopLive, computeLimits, limitsPayload, probeStart, probeStop, probeRun, probeRefresh, probePublic, probeParseOutput, probeSnapshot, probeResolveBin, probeInterval, probeTouch, _probe: PROBE, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
   _state: { get store() { return store; }, reqMap, byPrompt, STORE_FILE, START_MS, PROJECTS_DIR },
 };

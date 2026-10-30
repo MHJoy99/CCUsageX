@@ -521,16 +521,65 @@
         { kind: 'model', savePerDay: 14, text: 'Medium-effort chores on Sonnet 5.5 instead of Opus save \u2248 $14/day' }
       ].concat(tips);
       var spare = list.reduce(function (x, a) { return x + a.spare; }, 0);
+      // live, future and stats (same shapes as the server), shaped to the browser's local day
+      var r2 = function (v) { return Math.round(v * 100) / 100; }, sum = function (xs) { return xs.reduce(function (x, v) { return x + v; }, 0); };
+      var ds = new Date(now); ds.setHours(0, 0, 0, 0); ds = ds.getTime();
+      var at = Math.min(24, (now - ds) / H), hNow = Math.min(23, Math.floor(at));
+      var W = [0.3, 0.1, 0, 0, 0, 0, 0.1, 0.4, 0.8, 1.2, 1.5, 1.4, 0.9, 1.1, 1.5, 1.6, 1.4, 1.1, 0.8, 0.9, 1.2, 1.1, 0.8, 0.5], wsum = sum(W);
+      var usualHours = W.map(function (v) { return r2(v / wsum * fc.usualDay); });
+      var wig = function (i) { return 0.7 + 0.6 * Math.abs(Math.sin(i * 12.9898 + 4.1)); };
+      var hours = usualHours.map(function (v, i) { return i < hNow ? r2(v * wig(i)) : i === hNow ? r2(v * wig(i) * (at - hNow)) : 0; });
+      var recent = []; for (var i = 0; i < 24; i++) recent.push(r2((0.25 + 1.1 * Math.abs(Math.sin(i * 1.7 + 0.3))) * (i >= 16 ? 1.4 : 1)));
+      var byNow = 0, restU = 0;
+      usualHours.forEach(function (v, i) { if (i < hNow) byNow += v; else if (i === hNow) { byNow += v * (at - hNow); restU += v * (1 - at + hNow); } else restU += v; });
+      var share = Math.max(byNow + restU > 0 ? restU / (byNow + restU) : 0, (1 - at / 24) * 0.5);
+      var todayCost = r2(sum(hours));
+      var live = { lastHour: r2(sum(recent.slice(12))), recent: recent, hours: hours, usualHours: usualHours, restSafe: fc.safeDay != null ? Math.round(fc.safeDay * share) : null };
+      var cap = 96, WK = 7 * 24 * H;
+      function run(perHour, keep) {
+        var A = list.map(function (a) { return { label: a.label, used: a.pct, r: a.resetsAt, k: a.perPct }; });
+        var left = function () { return Math.round(sum(A.map(function (a) { return Math.max(0, cap - a.used) * a.k; }))); };
+        var cur = 0, track = [[now, left()]], dry = [], ex = [], t = now, d0 = null;
+        for (var st = 1; st <= 168; st++) {
+          t = now + st * H;
+          A.forEach(function (a) {
+            while (a.r <= t) {
+              track.push([a.r, left()]);
+              if (keep) ex.push({ label: a.label, at: a.r, usd: Math.round(Math.max(0, cap - a.used) * a.k) });
+              a.used = 0; track.push([a.r, left()]); a.r += WK;
+            }
+          });
+          if (A[cur].used >= cap) { var room = A.filter(function (a) { return a.used < cap; }).sort(function (x, y) { return x.r - y.r; }); if (room.length) cur = A.indexOf(room[0]); }
+          var a = A[cur];
+          if (a.used < cap) { a.used = Math.min(cap, a.used + perHour / a.k); if (d0 != null) { dry.push([d0, t - H]); d0 = null; } }
+          else if (d0 == null) d0 = t - H;
+          track.push([t, left()]);
+        }
+        if (d0 != null) dry.push([d0, t]);
+        return { track: track, dry: dry, expires: ex };
+      }
+      var ru = run(fc.usualDay / 24, true), rh = run(fc.heavyDay / 24, false), capWeek = cap * k * list.length;
+      var future = { from: now, to: now + WK, usual: ru.track, heavy: rh.track, dry: ru.dry, heavyDry: rh.dry, expires: ru.expires,
+        unused: sum(ru.expires.map(function (e) { return e.usd; })),
+        load: { usual: r2(fc.usualDay * 7 / capWeek), heavy: r2(fc.heavyDay * 7 / capWeek), week: Math.round(capWeek), accounts: list.length },
+        today: { soFar: todayCost, usualByNow: Math.round(byNow), end: Math.round(todayCost + restU), usualEnd: Math.round(fc.usualDay) } };
+      var series = [];
+      for (var j = 14; j >= 1; j--) { var dd = new Date(ds); dd.setDate(dd.getDate() - j); series.push({ from: dd.getTime(), cost: r2(fc.usualDay * (j > 7 ? 0.82 : 1) * (0.55 + 0.9 * Math.abs(Math.sin(j * 2.3 + 1)))) }); }
+      var wk = sum(series.slice(7).map(function (x) { return x.cost; })), prev = sum(series.slice(0, 7).map(function (x) { return x.cost; }));
+      var stats = { days: 7, cost: Math.round(wk), perDay: Math.round(wk / 7), prompts: 322, promptsPerDay: 46, perPrompt: r2(wk / 322),
+        tokensPerDay: 38400000, outPerDay: 410000, cacheHit: 0.962, cacheSavedPerDay: Math.round(wk / 7 * 4.2), helperShare: 0.18,
+        models: [{ name: 'Opus', share: 0.71 }, { name: 'Sonnet', share: 0.22 }, { name: 'Haiku', share: 0.07 }],
+        series: series, week: Math.round(wk), prevWeek: Math.round(prev), change: r2(wk / prev - 1) };
       var day = function (cost, split) { return { from: now - 12 * H, to: now, cost: cost, unpriced: 0, planDays: Math.round(cost / perDay * 100) / 100, split: multi ? split : [] }; };
       return { ok: true, timeZone: 'UTC', now: now, plan: plan,
-        today: day(96.4, [{ id: 'demo-a', label: 'Work', cost: 71.2 }, { id: 'demo-b', label: 'Side project', cost: 25.2 }]),
+        today: day(todayCost, [{ id: 'demo-a', label: 'Work', cost: r2(todayCost * 0.74) }, { id: 'demo-b', label: 'Side project', cost: r2(todayCost * 0.26) }]),
         yesterday: day(211.8, [{ id: 'demo-b', label: 'Side project', cost: 128.5 }, { id: 'demo-a', label: 'Work', cost: 83.3 }]),
         pace: { perHour: 6.4, last24h: 153.6, usualDay: fc.usualDay, heavyDay: fc.heavyDay, days: 7 },
         accounts: { list: list, count: list.length, spare: spare, weekLimit: 96 },
         runway: { until: fc.dryAt, dryUntil: fc.backAt, outlasts: !fc.dryAt, accounts: list.length, cap: 96, perHour: Math.round(fc.usualDay / 24 * 100) / 100 },
         forecast: fc,
         effort: [{ effort: 'medium', prompts: 214, perPrompt: 1.08, share: 0.38 }, { effort: 'high', prompts: 96, perPrompt: 2.25, share: 0.35 }, { effort: 'xhigh', prompts: 63, perPrompt: 2.4, share: 0.27 }],
-        tips: tips, reason: null };
+        tips: tips, live: live, future: future, stats: stats, reason: null };
     }
     return { payload: payload };
   })();

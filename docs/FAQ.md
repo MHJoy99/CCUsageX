@@ -146,7 +146,7 @@ running.
 ## Is there a desktop widget for my plan limits?
 
 Yes: Claude Pulse. On Windows with Rainmeter, run `scripts\install-widget.ps1`; on any OS open
-`http://127.0.0.1:3020/widget.html` in a browser. It shows the 5-hour and weekly rings, burn pace and your heavy hours.
+`http://127.0.0.1:3020/widget.html` in a browser. It shows the 5-hour and weekly rings, a live "right now" pace coach, today by hour and your heavy hours.
 The US busy-hours band is informational only: Anthropic removed the peak-hour limit reduction for Pro and Max on
 [2026-05-06](https://www.anthropic.com/news/higher-limits-spacex). Your heavy hours are measured from your own history
 and need at least 3 days of data. See [WIDGET.md](WIDGET.md).

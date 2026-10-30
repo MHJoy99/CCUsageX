@@ -12,12 +12,15 @@
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function money(v) { v = Math.round(Number(v) || 0); return (v < 0 ? '-$' : '$') + String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-  function days(pd) {
+  // n > 1: the yardstick is one day of all the accounts, so the words drop "plan"
+  function days(pd, n) {
     if (pd == null) return '';
-    if (pd < 1) return Math.round(pd * 100) + '% of a plan-day';
+    var unit = n > 1 ? 'day' : 'plan-day';
+    if (pd < 1) return Math.round(pd * 100) + '% of a ' + unit;
     var t = pd.toFixed(1);
-    return t + (t === '1.0' ? ' plan-day' : ' plan-days');
+    return t + ' ' + unit + (t === '1.0' ? '' : 's');
   }
+  function perHour(v) { return '$' + (v >= 10 ? Math.round(v) : v.toFixed(2)) + '/h'; }
   var atDtf = new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
   var mdDtf = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
   function at(ms) { return ms ? atDtf.format(ms) : ''; }
@@ -46,22 +49,27 @@
   function render(d) {
     if (!d || !d.ok || !d.plan) { host.hidden = true; host.innerHTML = ''; sig = ''; return; }
     var p = d.plan, td = d.today || {}, yd = d.yesterday || {}, acc = d.accounts && d.accounts.list && d.accounts.list.length ? d.accounts : null;
+    var n = acc && acc.count > 1 ? acc.count : 1, lv = d.live;
     var wk = p.range ? money(p.range.lo) + '–' + money(p.range.hi).slice(1) : money(p.perWeek);
     var note = p.stale && p.measuredAt ? '<span class="pvd-old">last measured ' + esc(mdDtf.format(p.measuredAt)) + '</span>'
       : p.range ? '<span class="pvd-old">still measuring</span>' : '<span>from ' + p.chunks + ' measured stretches</span>';
     var top = Math.max(1.25, (td.planDays || 0) * 1.08, (yd.planDays || 0) * 1.08);
     var h = '<div class="lim-top"><div class="lim-title"><h3><span class="sq"></span>Plan value</h3></div>' +
       '<div class="lim-meta">' + note + '</div></div><div class="pvd-body">' + verdict(d);
-    h += '<div class="pvd-kpis"><div class="pvd-k"><small>Your plan ≈</small><b>' + wk + '</b><span>a week of API work</span></div>' +
-      '<div class="pvd-k"><small>Per day</small><b>' + money(p.perDay) + '</b><span>' + money(p.perPct) + ' per 1% weekly</span></div>';
+    // several accounts each have their own $ per 1%, so the headline is the week of all of them
+    h += '<div class="pvd-kpis"><div class="pvd-k"><small>' + (n > 1 ? 'All ' + n + ' accounts ≈' : 'Your plan ≈') + '</small><b>' + wk + '</b><span>a week of API work</span></div>' +
+      '<div class="pvd-k"><small>Per day</small><b>' + money(p.perDay) + '</b><span>' + (p.perPct != null ? money(p.perPct) + ' per 1% weekly' : 'each account at its own rate') + '</span></div>';
     if (acc) h += '<div class="pvd-k"><small>Left this week</small><b>≈ ' + money(acc.spare) + '</b><span>across ' + acc.count + (acc.count === 1 ? ' account' : ' accounts') + '</span></div>';
+    // right now: the last hour's $/h and what still fits today at the pace that lasts the week (the widget's coach)
+    if (lv && d.forecast) h += '<div class="pvd-k"><small>Right now</small><b>' + perHour(lv.lastHour || 0) + '</b><span>' +
+      (lv.restSafe != null ? '≈ ' + money(lv.restSafe) + ' more fits today' : 'any pace fits this week') + '</span></div>';
     h += '</div><div class="pvd-days">';
     [['Today', td], ['Yesterday', yd]].forEach(function (x) {
       var v = x[1], frac = Math.min(1, (v.planDays || 0) / top);
       var split = v.split && v.split.length > 1 ? v.split.map(function (s) { return esc(s.label) + ' ' + money(s.cost); }).join(' · ') : '';
       h += '<div class="pvd-d" data-st="' + ((v.planDays || 0) > 1 ? 'watch' : 'ok') + '"><b>' + x[0] + '</b>' +
         '<div class="pvd-bar"><i style="--f:' + frac.toFixed(4) + '"></i><span style="left:' + (100 / top).toFixed(1) + '%" title="one plan-day"></span></div>' +
-        '<em>' + money(v.cost) + ' <small>· ' + days(v.planDays) + '</small></em>' + (split ? '<p>' + split + '</p>' : '') + '</div>';
+        '<em>' + money(v.cost) + ' <small>· ' + days(v.planDays, n) + '</small></em>' + (split ? '<p>' + split + '</p>' : '') + '</div>';
     });
     h += '</div>';
     if (acc) {
@@ -70,13 +78,14 @@
         var pct = Math.max(0, Math.min(100, a.pct || 0));
         h += '<div class="pvd-a' + (a.active ? ' on' : '') + '" data-st="' + st(pct) + '"><b><i></i>' + esc(a.label) + (a.active ? ' <small>active</small>' : '') + '</b>' +
           '<div class="pvd-bar"><i style="--f:' + (pct / 100).toFixed(4) + '"></i></div><em>' + Math.round(pct) + '%</em>' +
-          '<span>' + (a.fullAt ? 'full ≈ ' + esc(at(a.fullAt)) : 'resets ' + esc(at(a.resetsAt))) + '</span><span>' + (a.spare != null ? '≈ ' + money(a.spare) + ' left' : '') + '</span></div>';
+          '<span>' + (a.fullAt ? 'full ≈ ' + esc(at(a.fullAt)) : 'resets ' + esc(at(a.resetsAt))) + '</span><span>' + (a.spare != null ? '≈ ' + money(a.spare) + ' left' : '') +
+          (a.perPct ? ' · ' + money(a.perPct) + ' per 1%' : '') + '</span></div>';
       });
       h += '</div>';
     }
     var rw = d.runway;
     if (rw && !d.forecast) {
-      var many = !!(acc && acc.count > 1), who = many ? 'All ' + acc.count + ' accounts' : 'This account';
+      var many = n > 1, who = many ? 'All ' + n + ' accounts' : 'This account';
       var rate = rw.perHour > 0 ? ' at ' + money(rw.perHour) + '/h' : '';
       h += '<p class="pvd-run">' + (rw.outlasts ? who + (many ? ' outlast' : ' outlasts') + ' <b>the week</b>' + rate
         : who + (many ? ' last' : ' lasts') + ' until <b>' + esc(at(rw.until)) + '</b>' + rate + (rw.dryUntil ? ' · first reset ' + esc(at(rw.dryUntil)) : '')) + '</p>';
