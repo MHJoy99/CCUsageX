@@ -5,14 +5,23 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.1] - 2026-11-04
 
 ### Fixed
+
+- 5-hour and weekly rings mixed accounts: with sessions logged into several accounts, the 5-hour % came from one and
+  the weekly % from another (9% + 15% while the active account was at 97%). Limits now keep one account, told apart
+  by its weekly reset: CCSwitcherX's active account when a session reports it, else the freshest session's.
 
 - Widget "Use it or lose it" rows kept the job count on one line ("about **1** (≈ $18 each)") instead of breaking it.
 
 ### Changed
 
+- The widget shows much more again by default: the three plan cards plus the coach line, the 10-day strip and every
+  1.6.0 card (peak clock, rings, per-model, right now, plan value, forecast and stats). Saved 1.7.0 switches are not
+  carried over (they hid all of it); mode and tab are.
+- Under Rainmeter the card is capped to the screen height and the cards scroll with the mouse wheel, with a fade at
+  the bottom when there is more. `?maxh=<px>` does the same in a browser.
 - New 1.7.0 widget screenshots (default plan, extras on, compact, settings) on the site and in the README, plus two
   promo images (`docs/screenshots/promo-pulse*.png`), all from the synthetic demo.
 

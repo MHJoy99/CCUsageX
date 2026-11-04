@@ -260,19 +260,20 @@
   function now() { return Date.now() + clockShift; }
 
   /* settings (localStorage, wrapped) */
-  // v2 (1.7.0): the default view is only the 3 budget cards (today's budget, run dry, burn order); every older card and
-  // every extra is still here, off by default, each behind its own remembered switch. v1 only carries mode and tab over.
-  var KEY = 'mhjoy.claudepulse.v2', KEY_V1 = 'mhjoy.claudepulse.v1';
+  // v2 (1.7.0): the default view was only the 3 budget cards, every older card hidden. v3 (1.7.1, owner 2026-11-04: "make
+  // it show many data it showed earlier"): the 3 budget cards + coach + 10-day strip + every 1.6.0 card are on again;
+  // the rest of the extras stay off. Older keys only carry mode and tab over, so the v2 "all off" choices do not stick.
+  var KEY = 'mhjoy.claudepulse.v3', OLD_KEYS = ['mhjoy.claudepulse.v2', 'mhjoy.claudepulse.v1'];
   var DEFAULTS = { mode: 'expanded', tab: 'future', show: { budget: true, dry: true, order: true,
-    coach: false, picker: false, strip: false, whatif: false, spend: false, report: false, useit: false,
-    peak: false, usp: false, hours: false, session: false, weekly: false, models: false, pace: false, plan: false, yday: false, tips: false, insights: false } };
+    coach: true, picker: false, strip: true, whatif: false, spend: false, report: false, useit: false,
+    peak: true, usp: true, hours: false, session: true, weekly: true, models: true, pace: true, plan: true, yday: false, tips: false, insights: true } };
   if (Q.get('all')) for (var k0 in DEFAULTS.show) DEFAULTS.show[k0] = true; // ?all=1: every card (screenshots, demo)
   function loadSettings() {
     var s = JSON.parse(JSON.stringify(DEFAULTS));
     if (Q.get('nostore')) return s;
     try {
       var raw = localStorage.getItem(KEY), v1 = !raw;
-      if (v1) raw = localStorage.getItem(KEY_V1);
+      for (var ki = 0; !raw && ki < OLD_KEYS.length; ki++) raw = localStorage.getItem(OLD_KEYS[ki]);
       if (raw) {
         var o = JSON.parse(raw);
         if (o.mode === 'compact' || o.mode === 'expanded') s.mode = o.mode;
@@ -1078,6 +1079,24 @@
     }, 80);
   }
   if ('ResizeObserver' in window) new ResizeObserver(reportSize).observe($('stage'));
+
+  /* ---------- fit the screen (1.7.1): under Rainmeter the card is capped to the screen's free height and the cards
+     scroll with the mouse wheel; a fade at the bottom says there is more. ?maxh=<px> does the same in a browser. ---------- */
+  function capH() {
+    var q = Number(Q.get('maxh'));
+    if (q > 200) return q;
+    return typeof RainmeterAPI !== 'undefined' && screen.availHeight > 300 ? screen.availHeight - 8 : 0;
+  }
+  function fitScreen() {
+    var m = capH(), v = $('views');
+    card.classList.toggle('capped', !!m);
+    if (!m) { card.classList.remove('more'); return; }
+    card.style.setProperty('--maxh', (m - 28) + 'px'); // #stage padding, top + bottom
+    card.classList.toggle('more', v.scrollTop + v.clientHeight < v.scrollHeight - 4);
+  }
+  $('views').addEventListener('scroll', fitScreen, { passive: true });
+  if ('ResizeObserver' in window) { var fro = new ResizeObserver(fitScreen); fro.observe($('view-main')); fro.observe($('view-settings')); fro.observe($('views')); }
+  fitScreen(); setTimeout(fitScreen, 1500);
 
   /* ---------- boot ---------- */
   if (Q.get('bg') === 'forest') document.body.classList.add('bg-forest');

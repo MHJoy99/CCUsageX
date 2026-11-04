@@ -6,7 +6,11 @@ desktop with the Rainmeter skin in `integrations/rainmeter/ClaudePulse/`.
 
 ## What it shows
 
-By default (1.7.0) the widget shows three cards; everything else is behind its own switch in the settings gear.
+By default (1.7.1) the widget shows the three plan cards below, the coach line, the 10-day strip and every older card
+(peak clock, 5-hour and weekly rings, per-model, right now, plan value, next 7 / last 14 days). The other extras are
+behind their own switches in the settings gear. Under Rainmeter the card is never taller than the screen: the cards
+scroll with the mouse wheel and a fade at the bottom shows there is more (`?maxh=<px>` does the same in a browser).
+With several accounts, the 5-hour and weekly rings show one account (CCSwitcherX's active one), never a mix.
 
 - **Today's budget**: the dollars of work your accounts can take today, all accounts together, so every weekly
   allowance is used before it resets. Unused budget rolls over. Shows spent and left, tomorrow's budget, the $/h that

@@ -1731,10 +1731,31 @@ function limExtraUsage(valid) {
   return { enabled: true, monthlyLimit: limFiniteNum(x.monthly_limit), usedCredits: limFiniteNum(x.used_credits), utilization: limFiniteNum(x.utilization), currency: typeof x.currency === 'string' ? x.currency : null };
 }
 
+// Several accounts (CCSwitcherX): sessions logged into other accounts report other weekly windows, and mixing them showed
+// one account's 5-hour % next to another's weekly % (2026-11-04: 9% + 15% while the active account was at 97%). Keep one
+// account, told apart by its weekly reset time: the preferred one (the switcher's active account) when a session reports
+// it, else the freshest session's. Sessions without a weekly window, or with one already over, are kept.
+function limOneAccount(valid, now, preferResetMs) {
+  const r7 = (s) => { const w = s.rate_limits && s.rate_limits.seven_day; return w ? limMs(w.resets_at) : null; };
+  const live = valid.filter((s) => { const r = r7(s); return r != null && r > now; });
+  if (live.length < 2) return valid;
+  const same = (a, b) => Math.abs(a - b) < 5 * 60e3;
+  if (live.every((s) => same(r7(s), r7(live[0])))) return valid;
+  let anchor = preferResetMs > 0 ? live.find((s) => same(r7(s), preferResetMs)) : null;
+  if (!anchor) {
+    const fresh = (s) => (limFiniteNum(s.changedAt) != null ? s.changedAt : s.receivedAt);
+    anchor = live.slice().sort((a, b) => fresh(b) - fresh(a) || b.receivedAt - a.receivedAt)[0];
+  }
+  const ar = r7(anchor);
+  return valid.filter((s) => { const r = r7(s); return r == null || r <= now || same(r, ar); });
+}
+
 // snaps: parsed snapshot files; hist: [{t,w,p,r}] from history.jsonl. Pure: everything depends on the arguments and `now`.
-function computeLimits(snaps, hist, now) {
-  const valid = (snaps || []).filter((s) => s && limFiniteNum(s.receivedAt) != null && now - s.receivedAt < LIM_KEEP_MS && s.receivedAt <= now + 60e3);
-  const out = { available: false, source: 'statusline', updatedAt: null, windows: {}, sessions: valid.filter((s) => now - s.receivedAt < 24 * 3600e3).length, now };
+// opts.preferWeeklyResetAt: the weekly reset (ms) of the account to show when sessions on several accounts report.
+function computeLimits(snaps, hist, now, opts) {
+  const all = (snaps || []).filter((s) => s && limFiniteNum(s.receivedAt) != null && now - s.receivedAt < LIM_KEEP_MS && s.receivedAt <= now + 60e3);
+  const valid = limOneAccount(all, now, opts && opts.preferWeeklyResetAt);
+  const out = { available: false, source: 'statusline', updatedAt: null, windows: {}, sessions: all.filter((s) => now - s.receivedAt < 24 * 3600e3).length, now };
   if (!valid.length) { out.reason = 'no-data'; return out; }
   const reset = {};
   const hasData = valid.some((s) => s.rate_limits || s.spend_limit);
@@ -1778,7 +1799,8 @@ function computeLimits(snaps, hist, now) {
   const lead = out.windows.five_hour || out.windows.seven_day;
   if (lead) out.source = lead.source;
   if (Object.keys(reset).length) out.reset = reset; // extra: windows reported earlier that have since reset (their old resetsAt, ms)
-  out.activeSessions = valid.filter((s) => now - s.receivedAt < LIM_STALE_MS).length;
+  out.activeSessions = all.filter((s) => now - s.receivedAt < LIM_STALE_MS).length;
+  if (all.length > valid.length) out.otherAccountSessions = all.length - valid.length; // extra: sessions on other accounts, left out
   if (!names.length && !scoped.length) { out.reason = hasData ? 'no-data' : 'not-subscriber'; return out; }
   out.available = true;
   out.updatedAt = Math.max(...names.map((n) => out.windows[n].updatedAt), ...scoped.map((w) => w.updatedAt));
@@ -1865,7 +1887,9 @@ function statuslineInstalled(now = Date.now()) {
 }
 
 function limitsPayload(now = Date.now()) {
-  const p = computeLimits([...LIM.snaps.values()].map((x) => x.snap), LIM.hist.points, now);
+  let prefer = null;
+  try { const sw = readSwitcher(); const a = sw && sw.activeId && sw.profiles.find((x) => x.id === sw.activeId); if (a) prefer = a.resetsAt; } catch { /* no switcher */ }
+  const p = computeLimits([...LIM.snaps.values()].map((x) => x.snap), LIM.hist.points, now, { preferWeeklyResetAt: prefer });
   p.installed = statuslineInstalled(now);
   p.probe = probePublic(now);
   return p;

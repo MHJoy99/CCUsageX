@@ -90,6 +90,14 @@ footer { display: flex; align-items: center; justify-content: space-between; hei
   transform: translateZ(14px);
 }
 .stack > * + * { margin-top: 8px; }
+/* capped to the screen (1.7.1, widget.js fitScreen): header and footer stay, the cards scroll with the wheel */
+#card.capped { display: flex; flex-direction: column; max-height: var(--maxh); }
+#card.capped > header, #card.capped > footer { flex: none; }
+#card.capped #views { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -8px; padding: 2px 8px 12px; }
+#card.capped #views::-webkit-scrollbar { width: 5px; background: transparent; }
+#card.capped #views::-webkit-scrollbar-button { display: none; height: 0; }
+#card.capped #views::-webkit-scrollbar-thumb { background: rgba(15,42,27,.22); border-radius: 5px; }
+#card.capped.more #views { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 44px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 44px), transparent); }
 .enter { animation: rise .8s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 85ms + 180ms); }
 @keyframes rise { from { opacity: 0; transform: translate3d(0, 14px, 14px) scale(.97); } to { opacity: 1; transform: translateZ(14px); } }
 

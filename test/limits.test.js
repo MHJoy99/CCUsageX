@@ -346,6 +346,19 @@ test('math: freshest snapshot across sessions wins per window; an idle session r
   assert.equal(m.windows.seven_day.usedPct, 60);
 });
 
+test('math: sessions on two accounts are not mixed; the preferred account (switcher active) wins', () => {
+  const acct = (id, p5, p7, r7In, changedAgo) => snapOf({ sessionId: id, receivedAt: NOW - 1000, changedAt: NOW - changedAgo,
+    rate_limits: { five_hour: { used_percentage: p5, resets_at: sec(NOW + 2 * H) }, seven_day: { used_percentage: p7, resets_at: sec(NOW + r7In) } } });
+  const personal = acct('p', 9, 96, 29 * H, 10 * MIN), other = acct('o', 40, 15, 73 * H, 1 * MIN);
+  const free = srv.computeLimits([personal, other], [], NOW);               // no preference: the freshest account, both windows
+  assert.deepEqual([free.windows.five_hour.usedPct, free.windows.seven_day.usedPct, free.otherAccountSessions], [40, 15, 1]);
+  const pref = srv.computeLimits([personal, other], [], NOW, { preferWeeklyResetAt: NOW + 29 * H + 30e3 });
+  assert.deepEqual([pref.windows.five_hour.usedPct, pref.windows.seven_day.usedPct], [9, 96]);
+  assert.equal(pref.sessions, 2);
+  const one = srv.computeLimits([personal], [], NOW, { preferWeeklyResetAt: NOW + 73 * H }); // preferred account not reporting: keep what there is
+  assert.equal(one.windows.seven_day.usedPct, 96);
+});
+
 test('math: availability reasons - no-data and not-subscriber', () => {
   assert.deepEqual([srv.computeLimits([], [], NOW).available, srv.computeLimits([], [], NOW).reason], [false, 'no-data']);
   const none = srv.computeLimits([snapOf({ cwd: '/x' })], [], NOW);

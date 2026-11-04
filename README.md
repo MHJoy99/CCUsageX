@@ -178,7 +178,7 @@ Details, including the data fields and the burn-rate projection, are in
   cache, tokens, models and helpers.
 
 <p align="center">
-<img src="docs/screenshots/widget-today.png" alt="Claude Pulse default view: today's budget, run dry and burn order (demo data)" width="32%">
+<img src="docs/screenshots/widget-today.png" alt="Claude Pulse top cards: today's budget, run dry and burn order (demo data)" width="32%">
 <img src="docs/screenshots/widget-extras.png" alt="Claude Pulse with extras on: coach line, next 10 days, prompts left (demo data)" width="32%">
 <img src="docs/screenshots/widget-settings.png" alt="Claude Pulse settings: main cards and extras, one switch each" width="32%">
 </p>
