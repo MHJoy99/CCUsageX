@@ -571,7 +571,40 @@
         models: [{ name: 'Opus', share: 0.71 }, { name: 'Sonnet', share: 0.22 }, { name: 'Haiku', share: 0.07 }],
         series: series, week: Math.round(wk), prevWeek: Math.round(prev), change: r2(wk / prev - 1) };
       var day = function (cost, split) { return { from: now - 12 * H, to: now, cost: cost, unpriced: 0, planDays: Math.round(cost / perDay * 100) / 100, split: multi ? split : [] }; };
-      return { ok: true, timeZone: 'UTC', now: now, plan: plan,
+      // 1.7.0 budget + extras (fictional): today's $ across the accounts, run-dry times, burn order soonest reset first
+      var dayEnd = ds + 24 * H, tb = Math.round(fc.safeDay != null ? Math.min(fc.safeDay, fc.usualDay * 1.25) : fc.usualDay);
+      var ord = list.slice().sort(function (x, y) { return x.resetsAt - y.resetsAt; }).map(function (a) {
+        var lost = q === 'multi' && a.id === 'demo-b' ? 31 : 0;
+        return { id: a.id, label: a.label, active: a.active, pct: a.pct, resetsAt: a.resetsAt, perPct: k, rate: null, line: 96, spare: Math.round(Math.max(0, 96 - a.pct) * k),
+          extra: 0, lostAtReset: lost, fullAt: a.fullAt, session: null, sessionUsd: null, sessionThin: false };
+      });
+      var lostList = ord.filter(function (a) { return a.lostAtReset > 0; }).map(function (a) { return { at: a.resetsAt, usd: a.lostAtReset, labels: [a.label] }; });
+      var strip = []; for (var sd = 0; sd < 10; sd++) {
+        var from = ds + sd * 24 * H, rs = list.filter(function (a) { var r = a.resetsAt; while (r < from) r += WK; return r < from + 24 * H; }).map(function (a) { return a.label; });
+        strip.push({ from: from, budget: Math.round(tb * (rs.length ? 1.12 : 1) * (0.92 + 0.16 * Math.abs(Math.sin(sd * 1.3)))), resets: rs, dryHours: q === 'short' && sd === 1 ? 7 : 0, lost: sd === 0 ? 0 : (lostList[0] && lostList[0].at >= from && lostList[0].at < from + 24 * H ? lostList[0].usd : 0) });
+      }
+      var pace = 6.4, budget = { today: { budget: tb, spent: todayCost, left: Math.max(0, Math.round(tb - todayCost)), end: dayEnd }, tomorrow: Math.round(tb * 1.04),
+        ratePerHour: r2(tb / 24), rateUntil: ord[0].resetsAt, pacePerHour: pace, paceFallback: false, top: ord[0].id, topLabel: ord[0].label, behind: false,
+        floorDay: Math.round(tb * 0.8), ceilDay: Math.round(tb * 1.3), weekLimit: 96, correction: 1, heavyHours: null, segs: [],
+        dry: [
+          { key: 'now', label: 'This pace', perDay: Math.round(pace * 24), until: fc.dryAt, back: fc.backAt, reason: 'weekly', from: 'pulse', backUsd: fc.dryAt ? 940 : 0 },
+          { key: 'usual', label: 'Usual pace', perDay: fc.usualDay, until: fc.dryAt, back: fc.backAt, reason: 'weekly', from: 'pulse', backUsd: fc.dryAt ? 940 : 0 },
+          { key: 'heavy', label: 'Heavy day', perDay: fc.heavyDay, until: fc.heavyDryAt, back: fc.heavyDryAt ? fc.heavyDryAt + 9 * H : null, reason: fc.heavyDryAt ? '5h' : 'weekly', from: 'pulse', backUsd: 0 }
+        ],
+        order: ord, lost: lostList, strip: strip };
+      var extras = {
+        whatIf: [{ model: 'Opus', effort: 'medium', n: 214, perPrompt: 1.08 }, { model: 'Opus', effort: 'high', n: 96, perPrompt: 2.25 }, { model: 'Opus', effort: 'xhigh', n: 63, perPrompt: 2.4 }, { model: 'Sonnet', effort: 'high', n: 41, perPrompt: 0.62 }]
+          .map(function (w) { w.left = Math.floor(budget.today.left / w.perPrompt); return w; }),
+        spend: [{ name: 'web-app', cost: r2(todayCost * 0.52) }, { name: 'api-server', cost: r2(todayCost * 0.27) }, { name: 'docs', cost: r2(todayCost * 0.13) }, { name: 'Other', cost: r2(todayCost * 0.08) }],
+        report: (function () {
+          var rec = series.slice(-7).map(function (x, i) { return { from: x.from, pred: Math.round(fc.usualDay), actual: Math.round(x.cost) }; });
+          var miss = Math.round(rec.reduce(function (x, r) { return x + Math.abs(r.actual / r.pred - 1); }, 0) / rec.length * 100);
+          var bias = Math.round((rec.reduce(function (x, r) { return x + r.actual / r.pred; }, 0) / rec.length - 1) * 100);
+          return { days: 14, last: rec[rec.length - 1], avgMiss: miss, bias: bias, correction: 1, recent: rec };
+        })(),
+        jobs: [{ name: 'web-app', perJob: 18, n: 9 }, { name: 'api-server', perJob: 11, n: 6 }],
+        useIt: ['Refactor the test suite', 'Write the release notes'] };
+      return { ok: true, timeZone: 'UTC', now: now, plan: plan, budget: budget, extras: extras, alerts: { configured: false, enabled: false, minUsd: 20 }, switcherNext: null,
         today: day(todayCost, [{ id: 'demo-a', label: 'Work', cost: r2(todayCost * 0.74) }, { id: 'demo-b', label: 'Side project', cost: r2(todayCost * 0.26) }]),
         yesterday: day(211.8, [{ id: 'demo-b', label: 'Side project', cost: 128.5 }, { id: 'demo-a', label: 'Work', cost: 83.3 }]),
         pace: { perHour: 6.4, last24h: 153.6, usualDay: fc.usualDay, heavyDay: fc.heavyDay, days: 7 },
@@ -591,6 +624,7 @@
     if (url.indexOf('/api/limits') !== -1) return Promise.resolve(json(Lim.payload()));
     if (url.indexOf('/api/burn-hours') !== -1) return Promise.resolve(json(Burn.payload()));
     if (url.indexOf('/api/plan-value') !== -1) return Promise.resolve(json(Plan.payload()));
+    if (url.indexOf('/api/switch') !== -1 || url.indexOf('/api/alerts') !== -1) return Promise.resolve(json({ ok: false, error: 'not in the demo' }, 409));
     if (url.indexOf('/api/live/state') !== -1) { var st0 = Sim.state(); st0.limits = Lim.payload(); return Promise.resolve(json(st0)); }
     if (url.indexOf('/api/stream') !== -1) return Promise.resolve(json({ error: 'use EventSource' }, 404));
     var sm = /\/api\/(request|prompt)\?(?:key|id)=(sim-[^&]+)/.exec(url);

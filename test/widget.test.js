@@ -439,7 +439,7 @@ test('plan value: forecast from the usual day, the safe $/day, and when each acc
   assert.equal(o.runway.perHour, 15); // the runway runs at the usual pace, not the last 24 h
   assert.ok(['enough', 'tight', 'short'].includes(o.forecast.verdict));
   assert.equal(o.forecast.usualDay, 360);
-  const ok = (perDay) => { const r = srv.pvRunway(o.accounts.list, perDay / 24, f.now, 96); return !r || r.outlasts; };
+  const ok = (perDay) => { const r = srv.pvRunway(o.accounts.list, perDay / 24, f.now, 96, 28 * 24 * 3600e3); return !r || r.outlasts; };
   assert.equal(ok(o.forecast.safeDay), true); assert.equal(ok(o.forecast.safeDay + 1), false);
   assert.equal(o.forecast.verdict === 'short', !ok(360));
   for (const a of o.accounts.list) assert.ok(a.fullAt === null || Number.isInteger(a.fullAt));
@@ -602,4 +602,83 @@ test('plan days text names a day of all accounts when there are several', () => 
   assert.equal(pulse.planDaysText(0.5, 3), '50% of a day');
   assert.equal(pulse.planDaysText(1.42, 3), '1.4 days');
   assert.equal(pulse.planDaysText(null, 3), '');
+});
+
+// ---- 1.7.0 budget ----
+test('budget: the rate is the $ the accounts hold before the binding reset, capped by the 5-hour windows, and rolls over', () => {
+  const now = BASE, acc = (o) => Object.assign({ pct: 50, resetsAt: now + 50 * HOUR, perPct: 10 }, o);
+  const segs = srv.pvPlanRates([acc()], 100, now, now + 60 * HOUR);
+  assert.deepEqual(segs[0], [now, now + 50 * HOUR, 10]); // $500 left over 50 h
+  assert.equal(Math.round(srv.pvPlanSum(segs, now, now + 10 * HOUR)), 100);
+  assert.ok(Math.abs(segs[1][2] - 1000 / 168) < 0.01); // after the reset: a full week's $1,000 over the next week
+  // a 5-hour window worth $20 lets only $4/h through
+  assert.equal(srv.pvPlanRates([acc({ sessionUsd: 20 })], 100, now, now + 10 * HOUR)[0][2], 4);
+  // rollover: spend nothing for 10 h and the next 40 h get the same $500
+  const later = srv.pvPlanRates([acc()], 100, now + 10 * HOUR, now + 60 * HOUR);
+  assert.equal(later[0][2], 500 / 40);
+});
+
+test('budget: per-account stop lines from the switcher, else the flat limit', () => {
+  assert.equal(srv.pvLine({ line: 97 }, 99), 97);
+  assert.equal(srv.pvLine({}, 99), 99);
+  assert.equal(srv.pvLine({ line: 120 }, 99), 99);
+  const now = BASE, segs = srv.pvPlanRates([{ pct: 50, resetsAt: now + 50 * HOUR, perPct: 10, line: 90 }], 100, now, now + 50 * HOUR);
+  assert.equal(segs[0][2], 8); // $400 below the line over 50 h
+});
+
+test('budget: the run-dry sim stops at the weekly line and comes back at the reset', () => {
+  const now = BASE;
+  const r = srv.pvSim([{ pct: 90, resetsAt: now + 50 * HOUR, perPct: 10, active: true }], 100, now, () => 10, { noSession: true });
+  assert.ok(Math.abs(r.until - (now + 10 * HOUR)) <= 5 * MIN);
+  assert.equal(r.reason, 'weekly');
+  assert.ok(Math.abs(r.back - (now + 50 * HOUR)) <= 5 * MIN);
+  assert.ok(Math.abs(r.fills[0] - (now + 10 * HOUR)) <= 5 * MIN);
+  // a $20 5-hour window at $10/h stops after 2 h with weekly room left
+  const s = srv.pvSim([{ pct: 0, resetsAt: now + 150 * HOUR, perPct: 10, active: true, sessionUsd: 20 }], 100, now, () => 10, {});
+  assert.equal(s.reason, '5h');
+  assert.ok(s.until - now <= 2 * HOUR + 5 * MIN);
+});
+
+test('budget: plan value carries today, run dry, burn order and the extras; the burn plan file has ids and $ only', () => {
+  const f = planFixture();
+  const sw = { profiles: [
+    { id: 'aaaaaaaaaaaa', label: 'Alpha', pct: 1, resetsAt: RA * 1000, fetchedAt: f.now - 2 * 24 * HOUR },
+    { id: 'bbbbbbbbbbbb', label: 'Beta', pct: f.pB, resetsAt: RB * 1000, fetchedAt: f.now - HOUR },
+  ], activeId: 'aaaaaaaaaaaa', activeAt: BASE, weekLimit: 96, weekLines: { bbbbbbbbbbbb: 90 } };
+  const o = srv.computePlanValue(f.hist, f.reqs, sw, f.now, 'UTC', null);
+  const b = o.budget;
+  assert.ok(b && b.today);
+  assert.equal(b.today.budget, Math.round(b.today.spent + b.today.left));
+  assert.ok(b.dry.length >= 1 && b.dry.every((d) => d.until === null || Number.isFinite(d.until)));
+  assert.equal(b.order.length, 2);
+  assert.ok(b.order.every((r) => r.pct <= 100 && r.spare >= 0));
+  assert.equal(b.order.find((r) => r.id === 'bbbbbbbbbbbb').line, 90);
+  assert.equal(b.order.find((r) => r.id === 'bbbbbbbbbbbb').extra, 0); // above a switcher line is its margin, never lost
+  assert.equal(b.strip.length, 10);
+  assert.ok(o.extras && Array.isArray(o.extras.whatIf) && Array.isArray(o.extras.spend));
+  srv.writeBurnPlan(o, f.now);
+  const bp = JSON.parse(fs.readFileSync(path.join(TMP, 'data', 'burn-plan.json'), 'utf8'));
+  assert.equal(bp.v, 1);
+  assert.deepEqual(bp.order.slice().sort(), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb']);
+  assert.ok(!JSON.stringify(bp).includes('Alpha') && !JSON.stringify(bp).includes('Beta')); // never names
+  assert.ok(bp.accounts.every((a) => 'spareUsd' in a && 'extraUsd' in a && 'lostAtResetUsd' in a));
+  assert.match(srv.pvAlertText({ label: 'Beta', resetsAt: f.now + 6 * HOUR, lostAtReset: 44 }, 'UTC'), /^Claude Pulse: Beta resets .+ about \$44 /);
+});
+
+test('POST /api/switch and /api/alerts refuse other sites, missing headers, unknown accounts and a PC without alerts', async () => {
+  const server = await srv.start(0);
+  const port = server.address().port;
+  const post = (p, body, headers) => new Promise((resolve, reject) => {
+    const r = http.request({ port, path: p, host: '127.0.0.1', method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, headers) }, (res) => {
+      let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => resolve({ status: res.statusCode, body: b }));
+    });
+    r.on('error', reject); r.end(JSON.stringify(body));
+  });
+  try {
+    assert.equal((await post('/api/switch', { id: 'aaaaaaaaaaaa' }, {})).status, 403); // no X-Pulse header
+    assert.equal((await post('/api/switch', { id: 'aaaaaaaaaaaa' }, { 'X-Pulse': '1', Origin: 'https://evil.example' })).status, 403);
+    assert.equal((await post('/api/switch', { id: 'not-an-id!' }, { 'X-Pulse': '1' })).status, 400);
+    assert.equal((await post('/api/switch', { id: 'ffffffffffff' }, { 'X-Pulse': '1' })).status, 400); // not a saved account
+    assert.equal((await post('/api/alerts', { enabled: true }, { 'X-Pulse': '1' })).status, 409);
+  } finally { server.close(); }
 });

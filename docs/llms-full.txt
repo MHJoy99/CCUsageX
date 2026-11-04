@@ -115,3 +115,10 @@ A: Yes. CCUsageX scans the transcripts incrementally every few seconds and store
 
 Q: What do cache read, cache write and "cache saved" mean?
 A: Prompt caching lets Claude Code re-use context it already sent. Cache write tokens store that context, and cache read tokens re-use it at a fraction of the normal input price. "Cache saved" is what the cache-read tokens would have cost at the full input price minus what they cost at the cache-read price. The cache hit rate is the share of input served from cache.
+
+## Several accounts: CCSwitcherX
+
+CCSwitcherX (https://github.com/MHJoy99/CCSwitcherX) is the sister project. It switches Claude Code between your own
+accounts in one click. CCUsageX finds it on its own: the Claude Pulse widget turns all accounts into one daily dollar
+budget, shows when each runs dry and which to use first, and writes that plan to ~/.ccusagex/burn-plan.json, which
+CCSwitcherX follows when it moves to the next account.

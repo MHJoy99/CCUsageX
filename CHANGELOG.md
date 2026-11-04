@@ -5,6 +5,35 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-11-04
+
+### Added
+
+- **Today's budget** (widget, default): the dollars of work all your accounts can take today so every weekly
+  allowance is used before it resets, with spent, left, tomorrow, the $/h that keeps you on plan and the safe $/day
+  range. Unused budget rolls into the next days; the 14-day forecast check corrects it (x0.80 to x1.25).
+- **Run dry** (default): when you hit a limit if you keep going, at this pace, usual and heavy, which limit stops you
+  (5-hour or weekly) and when it comes back. A fresh CCSwitcherX live check shows as "Last few minutes".
+- **Burn order** (default): which account to use first, each with its stop line, $ left, reset and what it loses at
+  the reset.
+- Extras, each behind its own remembered switch: live coach, account picker with a two-click Switch, waste alert
+  (private message 24 h and 6 h before a reset that would waste $20+), next 10 days, prompts left by model and
+  effort, today by workspace, forecast report card, use-it-or-lose-it list.
+- `~/.ccusagex/burn-plan.json`: the plan (ids, % and $ only) for CCSwitcherX, about once a minute, also while no
+  widget is open. Per-account stop lines from CCSwitcherX (`weekLines`) are used; the slice above a line is its
+  safety margin and never counts as lost.
+- `POST /api/switch` and `POST /api/alerts`, guarded (same-machine Origin, `X-Pulse` header, JSON, 1 KB).
+
+### Changed
+
+- The older cards are hidden by default; nothing was removed, each is a switch in settings.
+- Measured heavy hours (when there are any) weight the run-dry simulation.
+
+### Fixed
+
+- The server could run out of memory: the plan-value stats and tips were rebuilt on every call (~0.5 s, ~50 MB each).
+  They are now cached until the data changes (at most 30 min); the call takes ~0.15 s. Heap cap 768 MB.
+
 ## [1.6.0] - 2026-10-30
 
 ### Added

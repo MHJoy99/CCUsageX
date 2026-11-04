@@ -260,18 +260,24 @@
   function now() { return Date.now() + clockShift; }
 
   /* settings (localStorage, wrapped) */
-  var KEY = 'mhjoy.claudepulse.v1';
-  var DEFAULTS = { mode: 'expanded', tab: 'future', show: { peak: true, usp: true, session: true, weekly: true, models: true, pace: true, plan: true, insights: true } };
+  // v2 (1.7.0): the default view is only the 3 budget cards (today's budget, run dry, burn order); every older card and
+  // every extra is still here, off by default, each behind its own remembered switch. v1 only carries mode and tab over.
+  var KEY = 'mhjoy.claudepulse.v2', KEY_V1 = 'mhjoy.claudepulse.v1';
+  var DEFAULTS = { mode: 'expanded', tab: 'future', show: { budget: true, dry: true, order: true,
+    coach: false, picker: false, strip: false, whatif: false, spend: false, report: false, useit: false,
+    peak: false, usp: false, hours: false, session: false, weekly: false, models: false, pace: false, plan: false, yday: false, tips: false, insights: false } };
+  if (Q.get('all')) for (var k0 in DEFAULTS.show) DEFAULTS.show[k0] = true; // ?all=1: every card (screenshots, demo)
   function loadSettings() {
     var s = JSON.parse(JSON.stringify(DEFAULTS));
     if (Q.get('nostore')) return s;
     try {
-      var raw = localStorage.getItem(KEY);
+      var raw = localStorage.getItem(KEY), v1 = !raw;
+      if (v1) raw = localStorage.getItem(KEY_V1);
       if (raw) {
         var o = JSON.parse(raw);
         if (o.mode === 'compact' || o.mode === 'expanded') s.mode = o.mode;
         if (o.tab === 'future' || o.tab === 'stats') s.tab = o.tab;
-        if (o.show) for (var k in s.show) if (typeof o.show[k] === 'boolean') s.show[k] = o.show[k];
+        if (o.show && !v1) for (var k in s.show) if (typeof o.show[k] === 'boolean') s.show[k] = o.show[k];
       }
     } catch (e) { /* storage unavailable */ }
     return s;
@@ -615,7 +621,7 @@
     if (vd) html += '<div class="pv-v" data-v="' + vd.v + '"><i>' + VERDICT_ICON[vd.v] + '</i><div><b>' + vd.title + '</b><small>' + vd.sub + '</small>' + (vd.sub2 ? '<small>' + vd.sub2 + '</small>' : '') + '</div></div>';
     html += '<div class="pv-h">' + (n > 1 ? 'All ' + n + ' accounts' : 'Your plan') + ' \u2248 <b>' + wk + '</b><small> /week of API work</small>' + note + '</div>';
     var td = d.today || {}, yd = d.yesterday || {}, sc = planScale(td.planDays, yd.planDays);
-    [['Today', td, 't'], ['Yesterday', yd, 'y']].forEach(function (x) {
+    [['Today', td, 't'], ['Yesterday', yd, 'y']].filter(function (x) { return x[2] === 't' || S.show.yday; }).forEach(function (x) {
       var v = x[1], pd = v.planDays;
       html += '<div class="pv-row" data-over="' + (pd > 1 ? 1 : 0) + '"><b>' + x[0] + '</b><div class="bar"><i id="pvb' + x[2] + '"></i><span class="pv-tick" style="left:' + (sc.tick * 100).toFixed(1) + '%"></span></div>' +
         '<em>' + money(v.cost) + ' <small>\u00b7 ' + planDaysText(pd, n) + '</small></em></div>';
@@ -640,11 +646,11 @@
       html += '<div class="pv-run">' + (rw.outlasts ? who + (many ? ' outlast' : ' outlasts') + ' <b>the week</b>' + rate
         : who + (many ? ' last' : ' lasts') + ' until <b>' + esc(fmtAt(rw.until)) + '</b>' + rate + (rw.dryUntil ? ' \u00b7 back ' + esc(fmtAt(rw.dryUntil)) : '')) + '</div>';
     }
-    var tips = (d.tips || []).slice(0, fc && fc.verdict === 'short' ? 2 : 1);
+    var tips = S.show.tips ? (d.tips || []).slice(0, fc && fc.verdict === 'short' ? 2 : 1) : [];
     tips.forEach(function (t) { html += '<div class="pv-tip" data-save="' + (t.savePerDay > 0 ? 1 : 0) + '"><b>' + (t.savePerDay > 0 ? 'Save' : 'Tip') + '</b><span>' + esc(t.text) + '</span></div>'; });
     if (el.innerHTML !== html) el.innerHTML = html;
     barTo('pvbt', 't', (td.planDays || 0) / sc.top, first);
-    barTo('pvby', 'y', (yd.planDays || 0) / sc.top, first);
+    if (S.show.yday) barTo('pvby', 'y', (yd.planDays || 0) / sc.top, first);
     if (acc) acc.list.forEach(function (a, i) { barTo('pva' + i, 'a' + (a.id || i), Math.max(0, Math.min(100, a.pct || 0)) / 100, first); });
     firstPlan = false;
   }
@@ -714,6 +720,169 @@
     else { renderInsights(); reportSize(); }
   });
 
+  /* ---------- 1.7.0 budget cards: today's $ across all accounts (with rollover), when you run dry, which account first ----------
+     All numbers come from /api/plan-value "budget" (server.js pvBudget), the same plan CCSwitcherX reads from burn-plan.json. */
+  var DRY_WHY = { '5h': '5-hour limit', weekly: 'weekly limits' };
+  function bgCoach(b, ms) {
+    var t = b.today, pace = b.pacePerHour || 0, end = t.end, hrs = Math.max(0.25, (end - ms) / 3600e3);
+    if (t.left <= 0) return { sev: 'warn', html: 'Today’s budget is used. More today comes out of tomorrow’s.' };
+    var need = t.left / hrs;
+    if (pace < 0.5) return { sev: 'ok', html: 'Quiet now. <b>' + usd2(need) + '/h</b> from here uses today’s budget by ' + esc(fmtT(end)) + '.' };
+    var out = ms + t.left / pace * 3600e3;
+    if (out < end - 20 * 60e3) return { sev: 'warn', html: 'At <b>' + usd2(pace) + '/h</b> today’s budget is gone by <b>' + esc(fmtT(out)) + '</b>. Ease to ' + usd2(need) + '/h to last the day.' };
+    if (pace < need * 0.8) return { sev: 'ok', html: 'At <b>' + usd2(pace) + '/h</b> you leave ' + money(t.left - pace * hrs) + ' today. Push to <b>' + usd2(need) + '/h</b> to use it all.' };
+    return { sev: 'ok', html: 'At <b>' + usd2(pace) + '/h</b> you use today’s budget right on time.' };
+  }
+  function bgTodayHtml(b, ms) {
+    var t = b.today, over = t.spent > t.budget, html = '';
+    html += '<div class="bg-top"><span class="m-cap">Today’s budget</span><span class="bg-sum">all accounts</span></div>';
+    html += '<div class="bg-big"><b>' + money(t.budget) + '</b><small>' + (over ? 'over by ' + money(t.spent - t.budget) : money(t.left) + ' left') + '</small></div>';
+    html += '<div class="bg-bar" data-sev="' + (over ? 'warn' : 'ok') + '"><div class="bar"><i id="bgBar"></i></div><em>' + money(t.spent) + ' spent</em></div>';
+    var f = [];
+    if (b.tomorrow != null) f.push('Tomorrow <b>' + money(b.tomorrow) + '</b>');
+    if (b.ratePerHour > 0) f.push('<b>' + usd2(b.ratePerHour) + '/h</b>' + (b.rateUntil ? ' till ' + esc(fmtAt(b.rateUntil)) : ''));
+    html += '<div class="bg-f">' + f.join(' · ') + '</div>';
+    if (b.ceilDay > 0) html += '<div class="bg-f sm">' + (b.floorDay != null && b.floorDay <= b.ceilDay
+      ? 'Wastes nothing between <b>' + money(b.floorDay) + '</b> and <b>' + money(b.ceilDay) + '</b> a day'
+      : 'Most the accounts carry: <b>' + money(b.ceilDay) + '/day</b> · a little waste can’t be avoided') + '</div>';
+    if (S.show.coach) { var c = bgCoach(b, ms); html += '<div class="co-l bg-co" data-sev="' + c.sev + '"><i></i><span>' + c.html + '</span></div>'; }
+    return html;
+  }
+  function bgDryHtml(b) {
+    var html = '<div class="bg-top"><span class="m-cap">Run dry</span><span class="bg-sum">if you keep this pace</span></div>';
+    b.dry.forEach(function (d) {
+      var never = d.until == null;
+      var when = never ? 'Never this week' : esc(fmtAt(d.until));
+      var sub = never ? 'all accounts last past the resets' : (d.back ? 'back ' + esc(fmtAt(d.back)) : 'no reset soon') + ' · ' + (DRY_WHY[d.reason] || 'limit') + (d.backUsd ? ' · ' + money(d.backUsd) + ' comes back' : '');
+      html += '<div class="bg-d" data-sev="' + (never ? 'ok' : d.reason === '5h' ? 'warn' : 'high') + '"' + (d.from === 'switcher' ? ' title="From the account switcher’s live check of the last few minutes"' : '') + '>' +
+        '<b><i></i>' + esc(d.label) + (d.perDay ? '<small>' + money(d.perDay) + '/day</small>' : '') + '</b><em>' + when + '<small>' + sub + '</small></em></div>';
+    });
+    return html;
+  }
+  var swState = { id: null, arm: 0, busy: false, msg: '' };
+  function bgOrderHtml(b) {
+    var html = '<div class="bg-top"><span class="m-cap">Burn order</span><span class="bg-sum">use first → last</span></div>';
+    b.order.forEach(function (a, i) {
+      var pct = Math.max(0, Math.min(100, a.pct || 0)), line = a.line || b.weekLimit || 100;
+      var sw = S.show.picker && a.id && !a.active
+        ? '<button class="bg-sw nodrag" data-id="' + esc(a.id) + '"' + (swState.busy ? ' disabled' : '') + '>' + (swState.busy && swState.id === a.id ? 'Switching…' : swState.arm > Date.now() && swState.id === a.id ? 'Sure?' : 'Switch') + '</button>' : '';
+      html += '<div class="bg-o' + (a.active ? ' on' : '') + '" data-sev="' + sev(pct) + '">' +
+        '<span class="bg-n">' + (i + 1) + '</span><b>' + esc(a.label) + (a.active ? '<small>active</small>' : '') + '</b>' +
+        '<div class="bar"><i id="bgo' + i + '"></i><span class="pv-tick" style="left:' + line + '%"></span></div><em>' + Math.round(pct) + '%</em>' +
+        '<span class="bg-os">' + money(a.spare) + ' left · resets ' + esc(fmtAt(a.resetsAt)) + (a.lostAtReset > 0 ? ' · <u>loses ' + money(a.lostAtReset) + '</u>' : '') + '</span>' + sw + '</div>';
+    });
+    var act = b.order.filter(function (a) { return a.active; })[0];
+    if (b.behind && b.topLabel && act && act.label !== b.topLabel) html += '<div class="bg-f sm warn">Use <b>' + esc(b.topLabel) + '</b> now: it resets first and still has work left.</div>';
+    var lost = (b.lost || []).filter(function (l) { return l.usd > 0; });
+    html += '<div class="bg-f sm' + (lost.length ? ' warn' : '') + '">' + (lost.length ? 'Lost at resets at this pace: ' + lost.slice(0, 3).map(function (l) { return '<b>' + money(l.usd) + '</b> ' + esc(fmtWd(l.at)) + ' (' + l.labels.map(esc).join(', ') + ')'; }).join(' · ')
+      : 'Nothing is lost at the resets at this pace') + '</div>';
+    if (swState.msg) html += '<div class="bg-f sm">' + esc(swState.msg) + '</div>';
+    return html;
+  }
+  var firstBudget = true;
+  function renderBudget() {
+    var el = $('sec-budget'), b = plan && plan.ok ? plan.budget : null, sh = S.show, ms = now();
+    if (!b || !b.today) { el.dataset.empty = '1'; el.innerHTML = ''; el._html = ''; return; }
+    var parts = [];
+    if (sh.budget) parts.push('<div class="bg-blk">' + bgTodayHtml(b, ms) + '</div>');
+    if (sh.dry && b.dry && b.dry.length) parts.push('<div class="bg-blk">' + bgDryHtml(b) + '</div>');
+    if (sh.order && b.order && b.order.length) parts.push('<div class="bg-blk">' + bgOrderHtml(b) + '</div>');
+    el.dataset.empty = parts.length ? '0' : '1';
+    var html = parts.join('');
+    if (el._html !== html) { el.innerHTML = html; el._html = html; }
+    if (sh.budget) barTo('bgBar', 'bg', b.today.budget > 0 ? b.today.spent / b.today.budget : 0, firstBudget);
+    if (sh.order) b.order.forEach(function (a, i) { barTo('bgo' + i, 'bo' + (a.id || i), Math.max(0, Math.min(100, a.pct || 0)) / 100, firstBudget); });
+    firstBudget = false;
+  }
+  // #2 account picker: two clicks (Switch, then Sure?) so a stray click never moves you; the switcher does the move
+  $('sec-budget').addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest && e.target.closest('button.bg-sw');
+    if (!btn || swState.busy) return;
+    var id = btn.dataset.id;
+    if (!(swState.id === id && swState.arm > Date.now())) { swState.id = id; swState.arm = Date.now() + 4000; swState.msg = ''; renderBudget(); reportSize(); setTimeout(function () { renderBudget(); }, 4100); return; }
+    swState.busy = true; swState.arm = 0; renderBudget();
+    fetch(apiBase + '/api/switch', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Pulse': '1' }, body: JSON.stringify({ id: id }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok && j.ok, j: j }; }); })
+      .then(function (x) { swState.msg = x.ok ? 'Switched. New sessions use it now.' : 'Switch failed' + (x.j && x.j.error ? ': ' + x.j.error : ''); })
+      .catch(function () { swState.msg = 'Switch failed: server not reachable'; })
+      .finally(function () { swState.busy = false; renderBudget(); reportSize(); fetchPlan(); setTimeout(function () { swState.msg = ''; renderBudget(); reportSize(); }, 15000); });
+  });
+
+  /* ---------- 1.7.0 extras, each behind its own switch ---------- */
+  function exStripHtml(b) {
+    var s = (b.strip || []).slice(0, 10), top = 1;
+    s.forEach(function (d) { top = Math.max(top, d.budget || 0); });
+    var html = '<div class="bg-top"><span class="m-cap">Next 10 days</span><span class="bg-sum">budget per day</span></div><div class="ex-strip">';
+    s.forEach(function (d, i) {
+      var h = Math.max(4, Math.round((d.budget || 0) / top * 100));
+      var tip = fmtMdDtf.format(d.from) + ': ' + money(d.budget) + (d.resets.length ? ' · resets ' + d.resets.join(', ') : '') + (d.dryHours ? ' · dry ' + d.dryHours + ' h' : '') + (d.lost ? ' · loses ' + money(d.lost) : '');
+      html += '<div class="ex-d' + (i === 0 ? ' now' : '') + '" title="' + esc(tip) + '" data-sev="' + (d.dryHours ? 'high' : d.lost ? 'warn' : 'ok') + '"><em>' + PVC_short(d.budget) + '</em><div class="ex-col"><i style="height:' + h + '%"></i></div>' +
+        '<span>' + esc(i === 0 ? 'Today' : fmtWd(d.from)) + '</span>' + (d.resets.length ? '<u></u>' : '') + '</div>';
+    });
+    return html + '</div>';
+  }
+  function PVC_short(v) { v = Math.round(v || 0); return v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : '$' + v; }
+  function exWhatIfHtml(e, b) {
+    var html = '<div class="bg-top"><span class="m-cap">Prompts left today</span><span class="bg-sum">of ' + money(b.today.left) + '</span></div><div class="ex-g">';
+    (e.whatIf || []).forEach(function (w) { html += '<div class="ix-f"><span>' + esc(w.model) + ' ' + esc(w.effort) + '</span><b>' + w.left + '</b><small>$' + w.perPrompt.toFixed(2) + ' each</small></div>'; });
+    return html + '</div>';
+  }
+  function exSpendHtml(e) {
+    var top = 0, html = '<div class="bg-top"><span class="m-cap">Today by workspace</span></div>';
+    (e.spend || []).forEach(function (s) { top = Math.max(top, s.cost); });
+    (e.spend || []).forEach(function (s, i) { html += '<div class="ex-s"><b>' + esc(s.name) + '</b><div class="bar"><i style="transform:scaleX(' + (top > 0 ? s.cost / top : 0).toFixed(3) + ')"></i></div><em>' + money(s.cost) + '</em></div>'; });
+    return html;
+  }
+  function exReportHtml(e) {
+    var r = e.report, html = '<div class="bg-top"><span class="m-cap">Forecast report card</span><span class="bg-sum">last ' + r.days + ' days</span></div>';
+    var grade = r.avgMiss <= 15 ? 'A' : r.avgMiss <= 25 ? 'B' : r.avgMiss <= 40 ? 'C' : 'D';
+    html += '<div class="ex-rc"><b data-g="' + grade + '">' + grade + '</b><div><span>Off by <b>' + r.avgMiss + '%</b> a day on average · ' + (r.bias < 0 ? 'you use ' + Math.abs(r.bias) + '% less than forecast' : 'you use ' + r.bias + '% more than forecast') + '</span>' +
+      (r.last ? '<small>Yesterday: said ' + money(r.last.pred) + ', you used ' + money(r.last.actual) + ' · budgets now ×' + r.correction.toFixed(2) + '</small>' : '') + '</div></div><div class="ex-strip rc">';
+    var top = 1;
+    (r.recent || []).forEach(function (x) { top = Math.max(top, x.pred, x.actual); });
+    (r.recent || []).forEach(function (x) {
+      html += '<div class="ex-d" title="' + esc(fmtMdDtf.format(x.from) + ': forecast ' + money(x.pred) + ', used ' + money(x.actual)) + '"><div class="ex-col two"><i class="p" style="height:' + Math.round(x.pred / top * 100) + '%"></i><i style="height:' + Math.round(x.actual / top * 100) + '%"></i></div><span>' + esc(fmtWd(x.from)) + '</span></div>';
+    });
+    return html + '</div><div class="ex-leg"><span class="p"><i></i>forecast</span><span><i></i>used</span></div>';
+  }
+  function exUseItHtml(e, b) {
+    var lost = (b.lost || []).filter(function (l) { return l.usd > 0; }), html = '<div class="bg-top"><span class="m-cap">Use it or lose it</span></div>';
+    if (!lost.length) return html + '<div class="bg-f sm">Nothing is at risk at this pace. Work as usual.</div>';
+    var l = lost[0];
+    html += '<div class="bg-f"><b>' + money(l.usd) + '</b> on ' + l.labels.map(esc).join(', ') + ' is lost ' + esc(fmtAt(l.at)) + '. Put these on it first:</div>';
+    (e.useIt || []).forEach(function (x) { html += '<div class="ex-u"><i></i>' + esc(x) + '</div>'; });
+    (e.jobs || []).forEach(function (j) {
+      var n = j.perJob > 0 ? Math.floor(l.usd / j.perJob) : 0;
+      if (n > 0) html += '<div class="ex-u"><i></i>' + esc(j.name) + ' jobs: about <b>' + n + '</b> (≈ ' + money(j.perJob) + ' each)</div>';
+    });
+    return html;
+  }
+  function renderExtras() {
+    var el = $('sec-more'), d = plan && plan.ok ? plan : null, b = d && d.budget, e = d && d.extras, sh = S.show, parts = [];
+    if (b && b.today) {
+      if (sh.strip && b.strip && b.strip.length) parts.push(exStripHtml(b));
+      if (e && sh.whatif && e.whatIf && e.whatIf.length) parts.push(exWhatIfHtml(e, b));
+      if (e && sh.spend && e.spend && e.spend.length) parts.push(exSpendHtml(e));
+      if (e && sh.report && e.report && e.report.recent && e.report.recent.length) parts.push(exReportHtml(e));
+      if (e && sh.useit) parts.push(exUseItHtml(e, b));
+    }
+    el.dataset.empty = parts.length ? '0' : '1';
+    var html = parts.map(function (p) { return '<div class="bg-blk">' + p + '</div>'; }).join('');
+    if (el._html !== html) { el.innerHTML = html; el._html = html; }
+  }
+  // #4 waste alert switch (server side, ~/.ccusagex/alerts.json): shown only when alerts are set up on this PC
+  function syncAlertsUI() {
+    var row = $('alRow'), inp = $('alIn'), al = plan && plan.alerts;
+    if (!row) return;
+    row.hidden = !(al && al.configured);
+    if (al) inp.checked = !!al.enabled;
+  }
+  function setAlerts(on) {
+    fetch(apiBase + '/api/alerts', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Pulse': '1' }, body: JSON.stringify({ enabled: on }) })
+      .then(function (r) { return r.json(); }).then(function (j) { if (plan && plan.alerts && j && typeof j.enabled === 'boolean') plan.alerts.enabled = j.enabled; })
+      .catch(function () { /* keep */ }).finally(syncAlertsUI);
+  }
+
   var planTimer = 0;
   function fetchPlan() {
     clearTimeout(planTimer);
@@ -722,7 +891,7 @@
     var delay = CONFIG.pollMs;
     fetch(apiBase + CONFIG.planUrl, { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
       .then(function (r) { if (r.status === 404) { delay = CONFIG.scheduleMs; return null; } if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (d) { plan = d && typeof d === 'object' && !d.error ? d : null; renderPlan(); renderInsights(); renderCoach(); renderHours(); applyVisibility(); })
+      .then(function (d) { plan = d && typeof d === 'object' && !d.error ? d : null; renderBudget(); renderExtras(); renderPlan(); renderInsights(); renderCoach(); renderHours(); syncAlertsUI(); applyVisibility(); })
       .catch(function () { delay = CONFIG.retryMs; /* keep the last answer; the offline state hides the card */ })
       .finally(function () { clearTimeout(to); planTimer = setTimeout(fetchPlan, delay); });
   }
@@ -802,8 +971,13 @@
     var sh = S.show, off = online === false, nodata = !usage && online !== false;
     card.classList.toggle('mode-compact', S.mode === 'compact');
     card.classList.toggle('mode-expanded', S.mode !== 'compact');
-    $('sec-peak').hidden = !sh.peak;
-    $('sec-offline').hidden = !off || !(sh.session || sh.weekly || sh.models || sh.pace || sh.plan || sh.insights);
+    // the clock card shows for the off-peak clock or for today-by-hour alone (then only the chart)
+    $('sec-peak').hidden = !(sh.peak || (sh.hours && !off && $('hrWrap').dataset.empty === '0' && S.mode !== 'compact'));
+    $('sec-peak').classList.toggle('hr-only', !sh.peak);
+    var needData = sh.budget || sh.dry || sh.order || sh.coach || sh.strip || sh.whatif || sh.spend || sh.report || sh.useit || sh.session || sh.weekly || sh.models || sh.pace || sh.plan || sh.insights;
+    $('sec-offline').hidden = !off || !needData;
+    $('sec-budget').hidden = off || $('sec-budget').dataset.empty !== '0';
+    $('sec-more').hidden = off || $('sec-more').dataset.empty !== '0';
     var showU = !off && !!usage;
     $('usage').hidden = off;
     if (nodata) showU = false;
@@ -814,13 +988,14 @@
     $('tiles').classList.toggle('one', bothOne === 1);
     $('sec-models').hidden = !(sh.models && showU) || $('sec-models').dataset.empty === '1';
     $('sec-pace').hidden = !sh.pace || off || $('sec-pace').dataset.empty !== '0';
-    $('hrWrap').hidden = !sh.peak || off || $('hrWrap').dataset.empty !== '0' || S.mode === 'compact';
+    $('hrWrap').hidden = !sh.hours || off || $('hrWrap').dataset.empty !== '0' || S.mode === 'compact';
     $('sec-plan').hidden = !sh.plan || off || $('sec-plan').dataset.empty !== '0';
     $('sec-ins').hidden = !sh.insights || off || $('sec-ins').dataset.empty !== '0';
-    var any = sh.peak || sh.session || sh.weekly || sh.models || sh.pace || sh.plan || sh.insights;
+    var any = false;
+    for (var sk in sh) if (sh[sk] && sk !== 'usp' && sk !== 'yday' && sk !== 'tips' && sk !== 'picker' && sk !== 'coach') any = true;
     $('sec-empty').hidden = any;
     // re-trigger the entry animation for sections that just appeared
-    ['sec-peak', 'sec-session', 'sec-weekly', 'sec-models', 'sec-pace', 'sec-plan', 'sec-ins', 'sec-offline'].forEach(function (id) {
+    ['sec-budget', 'sec-more', 'sec-peak', 'sec-session', 'sec-weekly', 'sec-models', 'sec-pace', 'sec-plan', 'sec-ins', 'sec-offline'].forEach(function (id) {
       var e = $(id), vis = !e.hidden;
       if (vis && e._wasHidden) { e.style.animation = 'none'; void e.offsetWidth; e.style.animation = ''; }
       e._wasHidden = !vis;
@@ -850,8 +1025,11 @@
   $('done').addEventListener('click', function () { showView(false); });
   document.querySelector('#view-settings').addEventListener('change', function (e) {
     var k = e.target && e.target.dataset && e.target.dataset.sec;
+    if (e.target.id === 'alIn') { setAlerts(e.target.checked); return; }
     if (!k) return;
-    S.show[k] = e.target.checked; saveSettings(); applyVisibility(); if (k === 'usp') { scheduleChanged(); renderHours(); }
+    S.show[k] = e.target.checked; saveSettings();
+    renderBudget(); renderExtras(); if (k === 'yday' || k === 'tips') renderPlan();
+    applyVisibility(); if (k === 'usp') { scheduleChanged(); renderHours(); }
   });
   document.querySelector('.seg').addEventListener('click', function (e) {
     var m = e.target && e.target.dataset && e.target.dataset.mode;
@@ -920,5 +1098,5 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { renderPeak(false); renderFooter(); } });
   if (Q.get('panel') === 'settings') { inSettings = false; showView(true); }
   // refresh reset countdown texts once a minute without refetching
-  setInterval(function () { if (!document.hidden && usage && online) { renderUsage(); renderPlan(); renderHours(); } }, 60000); // rings and bars keep their value (tween no-op)
+  setInterval(function () { if (!document.hidden && usage && online) { renderUsage(); renderBudget(); renderPlan(); renderHours(); } }, 60000); // rings and bars keep their value (tween no-op)
 })(typeof window !== 'undefined' ? window : globalThis);

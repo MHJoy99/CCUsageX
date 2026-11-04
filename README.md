@@ -13,12 +13,14 @@ cache hits, response times, tools, sessions and the API-equivalent cost of each 
 ![Node 18+](https://img.shields.io/badge/node-%E2%89%A518-1baf7a?style=flat-square)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-1baf7a?style=flat-square)
 ![Local only](https://img.shields.io/badge/data-stays%20on%20your%20machine-eb6834?style=flat-square)
+[![Works with CCSwitcherX](https://img.shields.io/badge/works%20with-CCSwitcherX-5b3df5?style=flat-square)](https://github.com/MHJoy99/CCSwitcherX)
 
 [**Live demo**](https://mhjoy99.github.io/CCUsageX/demo/) ·
 [**Website**](https://mhjoy99.github.io/CCUsageX/) ·
 [Quick start](#quick-start) ·
 [How it works](#how-it-works) ·
 [FAQ](#faq) ·
+[Several accounts? CCSwitcherX](#several-claude-accounts-use-ccswitcherx) ·
 [Docs](docs/ARCHITECTURE.md)
 
 </div>
@@ -154,6 +156,13 @@ Details, including the data fields and the burn-rate projection, are in
 
 **Claude Pulse** is a small desktop widget that keeps your limits in sight while you work. It shows:
 
+- by default, three cards for one or many accounts: **today's budget** (the dollars of work your accounts can take
+  today so no weekly allowance goes unused, with rollover), **run dry** (when you hit a limit if you keep going, at
+  this, your usual and a heavy pace, and when it comes back) and **burn order** (which account first, and what each
+  loses at its reset),
+- behind their own switches in settings: a live coach line, an account picker with a Switch button, a waste alert
+  before a reset, the next 10 days, prompts left by model and effort, today by workspace, a forecast report card,
+  a use-it-or-lose-it list, and all the cards below:
 - a **peak clock** with **your heavy hours** (measured from your own history) and the informational **US busy hours**,
 - **today by hour** under the clock (today's dollars per hour over your usual day),
 - the **5-hour** and **weekly** rings with reset times and where each lands by its reset, and **per-model** weekly limits,
@@ -190,6 +199,22 @@ then [removed that reduction for Pro and Max on 2026-05-06](https://www.anthropi
 So the US band is **informational** and labelled that way. The **heavy-hours band is measured from your own
 history** (limit percentage used per dollar of work, by hour of day) and needs at least 3 days of data. Details,
 configuration and troubleshooting: [docs/WIDGET.md](docs/WIDGET.md).
+## Several Claude accounts? Use CCSwitcherX
+
+[**CCSwitcherX**](https://github.com/MHJoy99/CCSwitcherX) is the sister project: switch Claude Code between your own
+accounts in one click (Windows window, VS Code status bar and CLI, encrypted saved logins). Free and MIT, like
+CCUsageX. The two work as one:
+
+| | CCUsageX + Claude Pulse | CCSwitcherX |
+|---|---|---|
+| Plan | Today's $ budget across all accounts, the burn order, when each one runs dry | Reads that plan (`~/.ccusagex/burn-plan.json`) |
+| Limits | Weekly %, 5-hour windows, $ per 1% for each account | Live checks of each account, its own stop line |
+| Action | **Switch** button per account in the widget | Does the switch, moves on by itself when one is full |
+| Waste | Warns before a reset would leave work unused | Burns the account that resets first |
+
+Install CCSwitcherX and CCUsageX finds it on its own (`~/.claude-accounts`); nothing to set up.
+Without it, CCUsageX still tracks the account you are signed in to.
+
 ## Screenshots
 
 <div align="center">

@@ -2443,9 +2443,9 @@ function pvRunway(accts, perHour, now, cap, horizonMs = PV.WEEK_MS) {
   if (!(perHour > 0) || !accts.length) return null;
   const fills = accts.map(() => null), expires = [], track = [], dry = [];
   const A = [];
-  accts.forEach((a, i) => { if (a.perPct > 0) A.push({ i, used: a.pct, r: a.resetsAt, k: a.perPct, active: a.active }); });
+  accts.forEach((a, i) => { if (a.perPct > 0) A.push({ i, used: a.pct, r: a.resetsAt, k: a.perPct, active: a.active, c: pvLine(a, cap) }); });
   if (!A.length) return null;
-  const room = (a) => !!a && a.used < cap - 1e-9, sliver = (a) => cap - a.used < PV.SLIVER;
+  const room = (a) => !!a && a.used < a.c - 1e-9, sliver = (a) => a.c - a.used < PV.SLIVER;
   const pick = () => A.filter(room).sort((x, y) => (sliver(x) - sliver(y)) || (x.r - y.r) || (y.k - x.k) || (x.used - y.used))[0] || null;
   const end = now + horizonMs;
   let t = now, first = null;
@@ -2455,7 +2455,7 @@ function pvRunway(accts, perHour, now, cap, horizonMs = PV.WEEK_MS) {
     return A.filter((a) => soonerThan(a, c) && a.r - t <= PV.EARLY_MS).sort((x, y) => x.r - y.r)[0] || c;
   };
   let cur = early(A.find((a) => a.active && room(a)) || pick());
-  const mark = () => track.push([Math.round(t), Math.round(A.reduce((x, a) => x + Math.max(0, cap - a.used) * a.k, 0))]);
+  const mark = () => track.push([Math.round(t), Math.round(A.reduce((x, a) => x + Math.max(0, a.c - a.used) * a.k, 0))]);
   mark();
   for (let guard = 0; guard < 400 && t < end; guard++) {
     const nextReset = Math.min(...A.map((a) => a.r));
@@ -2470,28 +2470,329 @@ function pvRunway(accts, perHour, now, cap, horizonMs = PV.WEEK_MS) {
       let nextWin = Infinity;
       for (const a of A) if (soonerThan(a, cur) && a.r - PV.EARLY_MS > t) nextWin = Math.min(nextWin, a.r - PV.EARLY_MS);
       const t2 = Math.min(nextReset, nextWin, end);
-      const emptyAt = t + (cap - cur.used) * cur.k / perHour * 3600e3;
-      if (emptyAt <= t2 && emptyAt < end) { cur.used = cap; t = emptyAt; mark(); if (fills[cur.i] == null) fills[cur.i] = Math.round(t); cur = early(pick()); continue; }
+      const emptyAt = t + (cur.c - cur.used) * cur.k / perHour * 3600e3;
+      if (emptyAt <= t2 && emptyAt < end) { cur.used = cur.c; t = emptyAt; mark(); if (fills[cur.i] == null) fills[cur.i] = Math.round(t); cur = early(pick()); continue; }
       cur.used += (t2 - t) / 3600e3 * perHour / cur.k;
       t = t2;
       mark();
     }
     let refilled = false;
-    for (const a of A) while (a.r <= t) { expires.push({ i: a.i, at: Math.round(a.r), usd: Math.round(Math.max(0, cap - a.used) * a.k) }); a.used = 0; a.r += PV.WEEK_MS; refilled = true; }
+    for (const a of A) while (a.r <= t) { expires.push({ i: a.i, at: Math.round(a.r), usd: Math.round(Math.max(0, a.c - a.used) * a.k) }); a.used = 0; a.r += PV.WEEK_MS; refilled = true; }
     if (refilled) mark();
     cur = early(room(cur) ? cur : pick());
   }
   return { until: first ? first.until : null, dryUntil: first ? first.dryUntil : null, outlasts: !first, fills, expires, track, dry };
 }
 
-// The highest steady $/day the accounts carry for a whole week without running dry (accounts refill at their resets).
-function pvSafeDay(accts, now, cap) {
-  const ok = (perDay) => { const r = pvRunway(accts, perDay / 24, now, cap); return !r || r.outlasts; };
+// an account's own stop line: the switcher's per-account weekLines (1.8.0) when it sent one, else the flat cap
+function pvLine(a, cap) { return a && a.line > 0 && a.line <= 100 ? a.line : cap; }
+
+// The highest steady $/day the accounts carry for four weeks without running dry (accounts refill at their resets).
+// 1.7.0: four weeks, not one: a 7-day run started just after a big reset never meets the next one and promised a pace
+// the following week could not carry.
+function pvSafeDay(accts, now, cap, horizonMs = PB.LONG_MS) {
+  const ok = (perDay) => { const r = pvRunway(accts, perDay / 24, now, cap, horizonMs); return !r || r.outlasts; };
   let lo = 0, hi = 1000;
   while (hi < 1e7 && ok(hi)) { lo = hi; hi *= 2; }
   if (hi >= 1e7) return null;
   for (let i = 0; i < 30 && hi - lo > 0.5; i++) { const m = (lo + hi) / 2; if (ok(m)) lo = m; else hi = m; }
   return Math.floor(lo);
+}
+
+// ---------------------------------------------------------------- budget (1.7.0)
+// Owner ask 2026-11-04: "how much I should use and when I will hit the limit, at what time, if I keep using".
+// Today's $ budget across every account (with rollover), when the accounts run dry at three paces (5-hour limits
+// counted), and the order to burn them so no account's week expires unused. The same numbers go to
+// ~/.ccusagex/burn-plan.json for CCSwitcherX (Pulse owns the $ and the order; the switcher owns live checks and when
+// to move). See docs/PROTECTED.md.
+const PB = { DAY: 864e5, H5: 5 * 3600e3, STEP: 5 * 60e3, SIM_MS: 10.5 * 864e5, SESS_LIMIT: 92, SLIVER_USD: 5, LONG_MS: 28 * 864e5, PAIR_MS: 30 * 60e3 };
+
+// What one full 5-hour window is worth in weekly %, per account: for every window (account, its week, the window's
+// reset) the rise of the 5-hour % and of the weekly % over the last 14 days (running max, so a flicker never counts).
+// Returns [{ slot, d5, d7 }]; the weekly % per full window is 100 * d7 / d5.
+function pvSessionRatios(hist, now) {
+  const from = now - 14 * PB.DAY, wins = new Map();
+  let last7 = null;
+  for (const x of hist) {
+    if (!x || x.r == null) continue;
+    if (x.w === '7d') { last7 = x; continue; }
+    if (x.w !== '5h' || x.t < from || !last7 || x.t - last7.t > PB.PAIR_MS) continue;
+    const slot = pvSlot(last7.r * 1000), key = slot + '|' + last7.r + '|' + x.r;
+    let w = wins.get(key);
+    if (!w) wins.set(key, w = { slot, p5: x.p, p7: last7.p, m5: x.p, m7: last7.p });
+    if (x.p > w.m5) w.m5 = x.p;
+    if (last7.p > w.m7) w.m7 = last7.p;
+  }
+  const out = [];
+  for (const w of wins.values()) {
+    let o = out.find((s) => pvSameSlot(s.slot, w.slot));
+    if (!o) out.push(o = { slot: w.slot, d5: 0, d7: 0 });
+    o.d5 += w.m5 - w.p5; o.d7 += w.m7 - w.p7;
+  }
+  return out;
+}
+
+// The accounts relayed in 5-minute steps at rateAt(t) $/h: the active account first, then the one with room whose week
+// ends soonest (under $5 of room sorts last). A 5-hour window opens on first use and stops at the switcher's session
+// limit; every reset refills its account. mult(t) > 1 drains the weekly % faster (measured heavy hours only).
+// Returns { until, back, reason, dry, fills }: until is the first moment nothing has room ('weekly': every account at
+// the line; '5h': only 5-hour windows are full), back when something has room again, dry every [from, to] span.
+function pvSim(accts, cap, now, rateAt, opt = {}) {
+  const sl = opt.sessionLimit > 0 ? opt.sessionLimit : PB.SESS_LIMIT, end = now + (opt.horizon || PB.SIM_MS), mult = opt.mult || null;
+  const A = accts.map((a, i) => [a, i]).filter(([a]) => a.perPct > 0).map(([a, i]) => {
+    const s = !opt.noSession && a.session && a.session.resetsAt > now ? a.session : null;
+    const c = pvLine(a, cap);
+    return { i, c, used: Math.min(a.pct, c), r: a.resetsAt, k: a.perPct, sk: !opt.noSession && a.sessionUsd > 0 ? a.sessionUsd / 100 : 0, s: s ? s.pct : 0, sr: s ? s.resetsAt : 0, active: a.active };
+  });
+  if (!A.length) return null;
+  const wRoom = (a) => a.used < a.c - 1e-6, sRoom = (a) => !a.sk || a.s < sl - 1e-6, room = (a) => wRoom(a) && sRoom(a);
+  const sliver = (a) => (a.c - a.used) * a.k < PB.SLIVER_USD;
+  const pick = () => A.filter(room).sort((x, y) => (sliver(x) - sliver(y)) || (x.r - y.r) || (y.k - x.k))[0] || null;
+  const fills = accts.map(() => null), dry = [];
+  let cur = A.find((a) => a.active && room(a)) || pick(), until = null, back = null, reason = null, dryFrom = null;
+  for (let t = now; t < end; t += PB.STEP) {
+    for (const a of A) {
+      if (a.r <= t) { a.used = 0; while (a.r <= t) a.r += PV.WEEK_MS; }
+      if (a.sr && a.sr <= t) { a.s = 0; a.sr = 0; }
+    }
+    if (!cur || !room(cur)) cur = pick();
+    if (!cur) {
+      if (dryFrom == null) dryFrom = t;
+      if (until == null) { until = t; reason = A.some(wRoom) ? '5h' : 'weekly'; }
+      continue;
+    }
+    if (dryFrom != null) { dry.push([dryFrom, t]); dryFrom = null; if (back == null) back = t; }
+    let usd = rateAt(t) * PB.STEP / 3600e3;
+    for (let g = 0; usd > 1e-9 && cur && g < 6; g++) {
+      const m = mult ? mult(t) : 1;
+      const take = Math.min(usd, (cur.c - cur.used) * cur.k / m, cur.sk ? (sl - cur.s) * cur.sk : Infinity);
+      if (cur.sk && !cur.sr) cur.sr = t + PB.H5;
+      cur.used += take * m / cur.k; if (cur.sk) cur.s += take / cur.sk; usd -= take;
+      if (!wRoom(cur) && fills[cur.i] == null) fills[cur.i] = t;
+      if (!room(cur)) cur = pick();
+    }
+  }
+  if (dryFrom != null) dry.push([dryFrom, end]);
+  return { until, back, reason, dry, fills };
+}
+
+// The budget: the most you can spend at each moment without running dry before the next refill, spread so it rolls
+// over (spend less today = more tomorrow). For the next 7 days of resets, rate = min over each reset T of (the $ the
+// accounts hold before T, refills before T included) / (T - now), never above what the 5-hour windows let through;
+// the accounts then burn soonest-week-first at that rate up to the binding reset and the step repeats.
+// Returns [[from, to, $/h], ...] covering now..until.
+function pvPlanRates(accts, cap, now, until) {
+  const A = accts.filter((a) => a.perPct > 0).map((a) => { const c = pvLine(a, cap); return { c, used: Math.min(a.pct, c), r: a.resetsAt, k: a.perPct, s5: a.sessionUsd > 0 ? a.sessionUsd : null }; });
+  if (!A.length) return null;
+  const roomUsd = () => A.reduce((x, a) => x + Math.max(0, a.c - a.used) * a.k, 0);
+  const refill = (t) => { for (const a of A) while (a.r <= t) { a.used = 0; a.r += PV.WEEK_MS; } };
+  const drain = (t0, t1, rate) => {
+    for (let t = t0, g = 0; t < t1 && g < 200; g++) {
+      const nr = Math.min(t1, ...A.map((a) => a.r));
+      let usd = rate * (nr - t) / 3600e3;
+      for (const a of [...A].sort((x, y) => x.r - y.r)) { if (usd <= 0) break; const take = Math.min(Math.max(0, a.c - a.used) * a.k, usd); a.used += take / a.k; usd -= take; }
+      t = nr; refill(t);
+    }
+  };
+  const segs = [];
+  for (let t = now, g = 0; t < until && g < 80; g++) {
+    const H = t + PV.WEEK_MS + 60e3, ev = [];
+    for (const a of A) for (let r = a.r; r <= H; r += PV.WEEK_MS) if (r > t) ev.push({ r, k: a.k, c: a.c });
+    ev.sort((x, y) => x.r - y.r);
+    let supply = roomUsd(), best = null;
+    for (const e of ev) {
+      const rate = supply / ((e.r - t) / 3600e3);
+      if (!best || rate < best.rate) best = { rate, at: e.r };
+      supply += e.c * e.k;
+    }
+    if (!best) best = { rate: supply / (PV.WEEK_MS / 3600e3), at: H };
+    // the 5-hour windows of the accounts with room cap how fast the work can go (only when every one is measured)
+    const open = A.filter((a) => a.used < a.c - 1e-6);
+    if (open.length && open.every((a) => a.s5)) best.rate = Math.min(best.rate, open.reduce((x, a) => x + a.s5 / 5, 0));
+    const t1 = Math.min(best.at, until);
+    segs.push([t, t1, best.rate]);
+    drain(t, t1, best.rate);
+    t = t1;
+  }
+  return segs;
+}
+// $ the segments allow between t0 and t1
+function pvPlanSum(segs, t0, t1) {
+  let s = 0;
+  for (const [a, b, r] of segs || []) { const x = Math.max(a, t0), y = Math.min(b, t1); if (y > x) s += r * (y - x) / 3600e3; }
+  return s;
+}
+// The lowest steady $/day that leaves nothing below the line unused at any reset for four weeks.
+function pvFloorDay(accts, now, cap) {
+  const lost = (perDay) => { const r = pvRunway(accts, perDay / 24, now, cap, PB.LONG_MS); return r ? r.expires.reduce((x, e) => x + e.usd, 0) : 0; };
+  let lo = 0, hi = 500;
+  while (hi < 1e6 && lost(hi) > PB.SLIVER_USD) { lo = hi; hi *= 2; }
+  if (hi >= 1e6) return null;
+  for (let i = 0; i < 30 && hi - lo > 0.5; i++) { const m = (lo + hi) / 2; if (lost(m) > PB.SLIVER_USD) lo = m; else hi = m; }
+  return Math.ceil(hi);
+}
+
+// Everything the budget card, the burn order, burn-plan.json and the extras show. pool: accounts with perPct, pct,
+// resetsAt, active, session, sessionUsd. ctx: { today, dayStart, tz, usualDay, heavyDay, prof (24 h, sum of the usual
+// days), nDays, nowPerHour, mult, swForecast, reqs }.
+function pvBudget(pool, cap, now, ctx) {
+  const P = pool.filter((a) => a.perPct > 0);
+  if (!P.length) return null;
+  const dayStart = ctx.dayStart, tz = ctx.tz, off = pvOffset(now, tz);
+  const dayEnds = [];
+  for (let d = dayStart, i = 0; i < 11; i++) { const e = pvDayStart(d + 30 * 3600e3, tz); dayEnds.push(e); d = e; }
+  const segs = pvPlanRates(P, cap, now, dayEnds[10]);
+  const rateNow = segs && segs.length ? segs[0][2] : 0;
+  const spent = ctx.today.cost;
+  const todayLeft = pvPlanSum(segs, now, dayEnds[0]);
+  // the hour-of-day shape of your usual days (flat when there is none)
+  const pSum = ctx.prof.reduce((x, v) => x + v, 0), shape = pSum > 0 ? ctx.prof.map((v) => v / pSum) : new Array(24).fill(1 / 24);
+  const hourOf = (t) => Math.floor((((t + off) % PB.DAY) + PB.DAY) % PB.DAY / 3600e3);
+  const shaped = (perDay) => (t) => perDay * shape[hourOf(t)];
+  const usualPace = ctx.usualDay * (ctx.correction || 1);
+  const pace = ctx.nowPerHour >= 1 ? ctx.nowPerHour : usualPace / 24; // quiet hour: fall back to your usual pace
+  const sims = [
+    { key: 'now', label: 'This pace', perDay: pace * 24, run: pvSim(P, cap, now, () => pace, { mult: ctx.mult }) },
+    { key: 'usual', label: 'Usual pace', perDay: usualPace, run: usualPace > 0 ? pvSim(P, cap, now, shaped(usualPace), { mult: ctx.mult }) : null },
+    { key: 'heavy', label: 'Heavy day', perDay: ctx.heavyDay, run: ctx.heavyDay > usualPace ? pvSim(P, cap, now, shaped(ctx.heavyDay), { mult: ctx.mult }) : null },
+  ];
+  // the switcher's own 12-hour relay is the better 5-hour model: when it says you are covered, a 5-hour stop of ours
+  // inside its window is dropped in favour of the weekly-only run
+  // (it paces from the last few minutes, Pulse from the last 3 hours, so its stop is shown as its own 'Burst' line)
+  const fc = ctx.swForecast;
+  if (fc && fc.horizonEnd > now) {
+    for (const s of sims) {
+      const r = s.run;
+      if (r && r.until != null && r.until < fc.horizonEnd && r.reason === '5h') { const w = pvSim(P, cap, now, s.key === 'now' ? () => pace : shaped(s.perDay), { mult: ctx.mult, noSession: true }); r.until = w.until; r.back = w.back; r.reason = w.reason; }
+    }
+    if (fc.stopAt && fc.stopAt > now) {
+      const act = P.find((a) => a.id && a.id === fc.activeId) || P.find((a) => a.active);
+      const perHour = fc.unitsPerHour > 0 && act && act.sessionUsd > 0 ? fc.unitsPerHour * act.sessionUsd : null;
+      sims.unshift({ key: 'burst', label: 'Last few minutes', perDay: perHour ? perHour * 24 : null, run: { until: fc.stopAt, back: fc.backAt || null, reason: '5h', from: 'switcher' } });
+    }
+  }
+  const refillAt = (t) => P.filter((a) => { const d = ((t - a.resetsAt) % PV.WEEK_MS + PV.WEEK_MS) % PV.WEEK_MS; return Math.min(d, PV.WEEK_MS - d) <= 10 * 60e3; }).reduce((x, a) => x + pvLine(a, cap) * a.perPct, 0);
+  const dry = sims.filter((s) => s.run).map((s) => ({ key: s.key, label: s.label, perDay: s.perDay != null ? Math.round(s.perDay) : null, until: s.run.until, back: s.run.back, reason: s.run.reason, from: s.run.from || 'pulse',
+    backUsd: s.run.back && s.run.reason === 'weekly' ? Math.round(refillAt(s.run.back)) : null }));
+  // what each reset leaves unused at this pace, for two weeks. With the switcher's per-account lines (1.8.0) the
+  // slice above a line is its safety margin for a sudden jump, never spent: extra 0 and not counted as lost (agreed
+  // with CCSwitcherX 2026-11-04). With only the flat weekLimit, the slice above it still counts.
+  const extraOf = (a) => a.line > 0 ? 0 : Math.max(0, 100 - cap) * a.perPct;
+  const lostRun = (perHour) => {
+    const rw = pvRunway(P, perHour, now, cap, 14 * PB.DAY);
+    return rw ? rw.expires.map((x) => ({ i: x.i, at: x.at, usd: x.usd + extraOf(P[x.i]) })) : [];
+  };
+  const lostNow = lostRun(pace), lostUsual = usualPace > 0 ? lostRun(usualPace / 24) : [];
+  const byReset = [];
+  for (const x of lostNow) {
+    let g = byReset.find((r) => Math.abs(r.at - x.at) < 6 * 3600e3);
+    if (!g) byReset.push(g = { at: x.at, usd: 0, labels: [] });
+    g.usd += x.usd; g.labels.push(P[x.i].label);
+  }
+  byReset.sort((a, b) => a.at - b.at);
+  const lost = byReset.filter((r) => r.usd >= 1).slice(0, 3).map((r) => ({ at: r.at, usd: Math.round(r.usd), labels: r.labels }));
+  // burn order: money left first, the week that ends soonest first, then the bigger loss
+  const nextLost = (i) => { const x = lostNow.find((e) => e.i === i); return x ? Math.round(x.usd) : 0; };
+  const simU = sims.find((s) => s.key === 'usual');
+  const fillsUsual = simU && simU.run && simU.run.fills ? simU.run.fills : P.map(() => null);
+  const rows = P.map((a, i) => ({
+    id: a.id || null, label: a.label, active: !!a.active, pct: a.pct, resetsAt: a.resetsAt, perPct: a.perPct, rate: a.rate,
+    line: pvLine(a, cap), spare: Math.round(Math.max(0, pvLine(a, cap) - a.pct) * a.perPct), extra: Math.round(extraOf(a)), lostAtReset: nextLost(i), fullAt: fillsUsual[i],
+    session: a.session || null, sessionUsd: a.sessionUsd || null, sessionThin: !!a.sessionThin,
+  }));
+  rows.sort((x, y) => ((y.spare >= PB.SLIVER_USD) - (x.spare >= PB.SLIVER_USD)) || (x.resetsAt - y.resetsAt) || (y.lostAtReset - x.lostAtReset));
+  const sl = PB.SESS_LIMIT, top = rows.find((r) => r.spare >= PB.SLIVER_USD && !(r.session && r.session.resetsAt > now && r.session.pct >= sl)) || null;
+  const act = rows.find((r) => r.active) || null;
+  const ai = act ? rows.indexOf(act) : -1;
+  // the switcher moves lazily (a switch rebuilds the cache, about $1.20), so the active account differs from the top
+  // most of the time; it is worth a note only when an account ahead of it would lose more than $5
+  const behind = ai > 0 && rows.slice(0, ai).some((r) => r.lostAtReset > PB.SLIVER_USD);
+  // 10 days: each day's budget, the resets in it, hours dry and $ lost at your usual pace
+  const runU = simU && simU.run;
+  const strip = dayEnds.slice(0, 10).map((e, i) => {
+    const s = i ? dayEnds[i - 1] : dayStart;
+    const dryH = runU ? runU.dry.reduce((x, [a, b]) => x + Math.max(0, Math.min(b, e) - Math.max(a, s)), 0) / 3600e3 : 0;
+    const resets = [];
+    for (const a of P) for (let r = a.resetsAt; r < e; r += PV.WEEK_MS) if (r >= s) resets.push(a.label);
+    return { from: s, budget: Math.round(i ? pvPlanSum(segs, s, e) : spent + todayLeft), resets, dryHours: Math.round(dryH * 10) / 10,
+      lost: Math.round(lostUsual.filter((x) => x.at >= s && x.at < e).reduce((v, x) => v + x.usd, 0)) };
+  });
+  const floorDay = pvFloorDay(P, now, cap), ceilDay = pvSafeDay(P, now, cap);
+  return {
+    today: { budget: Math.round(spent + todayLeft), spent: r2(spent), left: Math.round(todayLeft), end: dayEnds[0] },
+    tomorrow: Math.round(pvPlanSum(segs, dayEnds[0], dayEnds[1])),
+    ratePerHour: r2(rateNow), rateUntil: segs && segs.length ? segs[0][1] : null, pacePerHour: r2(ctx.nowPerHour), paceFallback: !(ctx.nowPerHour >= 1),
+    dry, order: rows, top: top ? top.id || top.label : null, topLabel: top ? top.label : null, behind,
+    lost, floorDay, ceilDay, weekLimit: cap, strip, correction: ctx.correction || 1, heavyHours: !!ctx.mult,
+    segs: (segs || []).slice(0, 12).map(([a, b, r]) => [Math.round(a), Math.round(b), r2(r)]),
+  };
+}
+
+// Extras that read the request log: prompts left today per model + effort (#6), today's $ by workspace (#7), the
+// forecast report card (#8) and the past big jobs a coming loss could pay for (#10).
+const pvFam = (m) => /opus/i.test(m) ? 'Opus' : /sonnet/i.test(m) ? 'Sonnet' : /haiku/i.test(m) ? 'Haiku' : /fable/i.test(m) ? 'Fable' : /mythos/i.test(m) ? 'Mythos' : null;
+const pvBase = (p) => { const s = String(p || '').replace(/[\\/]+$/, ''); const b = s.split(/[\\/]/).pop() || ''; return b.replace(/^[A-Za-z]--/, '').slice(0, 40) || 'other'; };
+function pvExtras(reqs, now, tz, dayStart, firstAt, budgetLeft) {
+  const out = { whatIf: [], spend: [], report: null, jobs: [] };
+  // #6: cost per prompt (helpers included) by the main model and effort, last 7 days, 10 prompts or more
+  const p7 = now - 7 * PB.DAY, prompts = new Map();
+  for (let i = firstAt(p7); i < reqs.length && reqs[i].ts <= now; i++) {
+    const q = reqs[i];
+    if (!q.promptId || !q.cost) continue;
+    let p = prompts.get(q.promptId);
+    if (!p) prompts.set(q.promptId, p = { cost: 0, fam: null, effort: null });
+    p.cost += q.cost.total || 0;
+    if (!q.sidechain && !p.fam) { p.fam = pvFam(q.model || ''); p.effort = q.effort || null; }
+  }
+  const combo = new Map();
+  for (const p of prompts.values()) {
+    if (!p.fam || !(p.cost > 0)) continue;
+    const k = p.fam + '|' + (p.effort || 'default');
+    const c = combo.get(k) || { model: p.fam, effort: p.effort || 'default', n: 0, cost: 0 };
+    c.n++; c.cost += p.cost; combo.set(k, c);
+  }
+  out.whatIf = [...combo.values()].filter((c) => c.n >= 10).sort((a, b) => b.n - a.n).slice(0, 4)
+    .map((c) => ({ model: c.model, effort: c.effort, n: c.n, perPrompt: r2(c.cost / c.n), left: budgetLeft > 0 ? Math.floor(budgetLeft / (c.cost / c.n)) : 0 }));
+  // #7: today by workspace
+  const ws = new Map();
+  for (let i = firstAt(dayStart); i < reqs.length && reqs[i].ts <= now; i++) {
+    const q = reqs[i]; if (!q.cost) continue;
+    const k = pvBase(q.project); ws.set(k, (ws.get(k) || 0) + (q.cost.total || 0));
+  }
+  const wl = [...ws.entries()].sort((a, b) => b[1] - a[1]);
+  out.spend = wl.slice(0, 4).map(([name, cost]) => ({ name, cost: r2(cost) }));
+  const rest = wl.slice(4).reduce((x, w) => x + w[1], 0);
+  if (rest >= 0.5) out.spend.push({ name: 'Other', cost: r2(rest) });
+  // #8: each of the last 14 full days against the plain forecast (the mean of the 7 days before it)
+  const days = [];
+  for (let e = dayStart, i = 0; i < 21; i++) { const s = pvDayStart(e - 1, tz); let c = 0; for (let j = firstAt(s); j < reqs.length && reqs[j].ts < e; j++) if (reqs[j].cost) c += reqs[j].cost.total || 0; days.unshift({ from: s, cost: c }); e = s; }
+  const first = reqs.length ? reqs[0].ts : now, rows = [];
+  for (let i = 7; i < days.length; i++) {
+    if (days[i - 7].from < pvDayStart(first, tz)) continue; // the 7 days before must all be inside the logs
+    const pred = days.slice(i - 7, i).reduce((x, d) => x + d.cost, 0) / 7;
+    if (pred > 1) rows.push({ from: days[i].from, pred: Math.round(pred), actual: Math.round(days[i].cost), ratio: days[i].cost / pred });
+  }
+  if (rows.length) {
+    const last7 = rows.slice(-7), med = last7.map((r) => r.ratio).sort((a, b) => a - b)[Math.floor(last7.length / 2)];
+    out.report = {
+      days: rows.length, last: rows[rows.length - 1],
+      avgMiss: Math.round(rows.reduce((x, r) => x + Math.abs(r.ratio - 1), 0) / rows.length * 100),
+      bias: Math.round((rows.reduce((x, r) => x + r.ratio, 0) / rows.length - 1) * 100),
+      correction: last7.length >= 7 ? Math.min(1.25, Math.max(0.8, Math.round(med * 100) / 100)) : 1,
+      recent: rows.slice(-7).map(({ ratio, ...r }) => r),
+    };
+  }
+  // #10: the biggest sessions of the last 14 days, by workspace (what "use it on a big job" can point at)
+  const ss = new Map();
+  for (let i = firstAt(now - 14 * PB.DAY); i < reqs.length && reqs[i].ts <= now; i++) {
+    const q = reqs[i]; if (!q.cost || !q.sessionId) continue;
+    const s = ss.get(q.sessionId) || { name: pvBase(q.project), cost: 0 };
+    s.cost += q.cost.total || 0; ss.set(q.sessionId, s);
+  }
+  const byWs = new Map();
+  for (const s of ss.values()) if (s.cost >= 10) { const w = byWs.get(s.name) || { name: s.name, n: 0, cost: 0 }; w.n++; w.cost += s.cost; byWs.set(s.name, w); }
+  out.jobs = [...byWs.values()].sort((a, b) => b.cost - a.cost).slice(0, 3).map((w) => ({ name: w.name, perJob: Math.round(w.cost / w.n), n: w.n }));
+  return out;
 }
 
 // What the logs say about effort and models, measured on the last 7 days: cost per prompt (helpers included) by the
@@ -2605,7 +2906,9 @@ function pvStats(reqs, from, to, days) {
 
 // hist: limits history; reqs ascending with .cost; sw: { profiles: [{id, label, pct, resetsAt(ms), fetchedAt(ms)}],
 // activeId, activeAt, weekLimit } or null; last: { perPct, lo, hi, chunks, at } from the last good measurement or null.
-function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last = null) {
+// opts (1.7.0): { mult(t) drain multiplier from measured heavy hours, swForecast: the switcher's forecast.json }
+let pvSlowCache = { reqs: null, key: '', at: 0 };
+function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last = null, opts = {}) {
   hist = hist || []; reqs = reqs || [];
   const { chunks, events } = bhChunks(hist, reqs);
   // outliers are judged per account: plans burn the weekly % at very different $ rates (a Pro week fills ~4-5x faster
@@ -2623,7 +2926,7 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
   let plan = null;
   if (measured) plan = { perPct: pooled.perPct, lo: pooled.lo, hi: pooled.hi, chunks: pooled.chunks, at: now, stale: false, thin: pooled.chunks < 6 || pooled.rel > PV.THIN_REL };
   else if (last && last.perPct > 0) plan = { perPct: last.perPct, lo: last.lo || last.perPct, hi: last.hi || last.perPct, chunks: last.chunks || 0, at: last.at || null, stale: true, thin: false };
-  const out = { ok: !!plan, timeZone: tz, now, plan: null, today: null, yesterday: null, pace: null, accounts: null, runway: null, forecast: null, future: null, stats: null, effort: [], tips: [], reason: plan ? (measured ? 'measured' : 'last measured') : 'need more data' };
+  const out = { ok: !!plan, timeZone: tz, now, plan: null, today: null, yesterday: null, pace: null, accounts: null, runway: null, forecast: null, future: null, stats: null, budget: null, extras: null, effort: [], tips: [], reason: plan ? (measured ? 'measured' : 'last measured') : 'need more data' };
   // accounts: the switcher's profiles plus the ones seen in history
   const slots = [];
   const slotOf = (rMs) => { const k = pvSlot(rMs); let s = slots.find((x) => pvSameSlot(x.slot, k)); if (!s) slots.push(s = { slot: k, id: null, label: null, sw: null }); return s; };
@@ -2634,6 +2937,9 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
     const s = slotOf(x.r * 1000), l = latest.get(s);
     if (!l || x.t > l.t) latest.set(s, x);
   }
+  // the newest 5-hour row and the account (weekly row) it belongs to: the status line writes the active account's rows
+  let last5 = null, five = null;
+  for (const x of hist) if (x && x.r != null && typeof x.p === 'number') { if (x.w === '7d') last5 = x; else if (x.w === '5h' && last5 && x.t - last5.t <= PB.PAIR_MS && (!five || x.t >= five.x.t)) five = { x, s: slotOf(last5.r * 1000) }; }
   // the account of a request: nearest (t, account) event, if one is close enough
   const accountAt = (t) => {
     let a = 0, b = events.length;
@@ -2677,7 +2983,13 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
     if (pct == null || !(resetsAt > 0)) continue;
     if (!p && resetsAt <= now - PV.WEEK_MS) continue; // an old week seen only in history
     if (resetsAt <= now) { pct = 0; while (resetsAt <= now) resetsAt += PV.WEEK_MS; }
-    acc.push({ key: s, id: s.id, label: s.label, active: s === activeSlot, pct: Math.round(pct * 10) / 10, resetsAt: Math.round(resetsAt), updatedAt: at ? Math.round(at) : null, source: src });
+    // 5-hour window: the switcher's last fetch, or the status line's newest row when that is newer
+    let ses = p && p.session ? { pct: p.session.pct, resetsAt: p.session.resetsAt, at: p.fetchedAt || 0 } : null;
+    if (five && five.s === s && (!ses || five.x.t >= ses.at)) ses = { pct: five.x.p, resetsAt: five.x.r * 1000, at: five.x.t };
+    if (ses && !(ses.resetsAt > now)) ses = { pct: 0, resetsAt: null, at: ses.at };
+    // reset times arrive as float seconds (…599.6): shown to the minute they mean
+    acc.push({ key: s, id: s.id, label: s.label, active: s === activeSlot, pct: Math.round(pct * 10) / 10, resetsAt: Math.round(resetsAt / 60e3) * 60e3, updatedAt: at ? Math.round(at) : null, source: src,
+      session: ses ? { pct: Math.round(ses.pct * 10) / 10, resetsAt: ses.resetsAt ? Math.round(ses.resetsAt / 60e3) * 60e3 : null } : null });
   }
   const known = acc.map((a) => ownOf(a.key) || savedOf(a.key)).filter((v) => v > 0), lowest = known.length ? Math.min(...known) : null;
   // the switcher moves on at its weekLimit, so the work left in an account is what it holds below that line
@@ -2689,7 +3001,17 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
     a.ownRate = !!o;
     a.rate = o ? 'own' : sv ? 'saved' : lowest ? 'assumed' : v ? 'pooled' : null;
     a.perWeek = v ? Math.round(v * 100) : null;
-    a.spare = v ? Math.round(Math.max(0, cap - a.pct) * v) : null;
+    const ln = sw && sw.weekLines && a.id ? Number(sw.weekLines[a.id]) : 0;
+    if (ln >= 50 && ln <= 100) a.line = ln;
+    a.spare = v ? Math.round(Math.max(0, pvLine(a, cap) - a.pct) * v) : null;
+  }
+  // what a full 5-hour window is worth on each account, in $ (measured from its own windows; under 30 points of
+  // 5-hour rise there is no figure, under 100 it is marked thin)
+  const ratios = pvSessionRatios(hist, now);
+  for (const a of acc) {
+    const o = ratios.find((x) => pvSameSlot(x.slot, a.key.slot));
+    a.sessionUsd = o && o.d5 >= 30 && o.d7 > 0 && a.perPct ? Math.round(100 * o.d7 / o.d5 * a.perPct) : null;
+    a.sessionThin = !!(o && o.d5 < 100);
   }
   acc.sort((a, b) => (b.active - a.active) || (a.resetsAt - b.resetsAt));
   acc.forEach((a, i) => { if (!a.label) a.label = 'Account ' + (i + 1); });
@@ -2791,13 +3113,32 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
       today: { soFar: r2(today.cost), usualByNow: Math.round(byNow), end: Math.round(today.cost + rest), usualEnd: Math.round(usualDay) },
     };
   }
-  const st = pvStats(reqs, oldest, dayStart, dayCosts.length);
+  // 1.7.0: today's budget, run-dry times at three paces, the burn order and the extras
+  if (pool.length && plan) {
+    let n3 = 0;
+    for (let j = firstAt(now - 3 * 3600e3); j < reqs.length && reqs[j].ts <= now; j++) if (reqs[j].cost) n3 += reqs[j].cost.total || 0;
+    const ex = pvExtras(reqs, now, tz, dayStart, firstAt, 0);
+    const b = pvBudget(pool, cap, now, { today, dayStart, tz, usualDay, heavyDay, prof, nowPerHour: n3 / 3, mult: opts.mult || null, swForecast: opts.swForecast || null,
+      correction: ex.report && ex.report.correction !== 1 ? ex.report.correction : 1 });
+    if (b) {
+      ex.whatIf.forEach((w) => { w.left = b.today.left > 0 ? Math.floor(b.today.left / w.perPrompt) : 0; });
+      out.budget = b;
+      out.extras = ex;
+    }
+  }
+  // stats and tips read only full past days, so they are kept until the day, the window or its record count changes
+  // (or 30 minutes pass): redoing them every minute cost ~0.5 s and ~50 MB of garbage each time (2026-11-04)
+  const pvKey = [oldest, dayStart, dayCosts.length, out.forecast && out.forecast.verdict, lowerBound(reqs, oldest), lowerBound(reqs, dayStart)].join('|');
+  if (pvSlowCache.reqs !== reqs || pvSlowCache.key !== pvKey || now - pvSlowCache.at > 30 * 60e3) {
+    pvSlowCache = { reqs, key: pvKey, at: now, st: pvStats(reqs, oldest, dayStart, dayCosts.length), lg: pvTips(reqs, oldest, dayStart, dayCosts.length, out.forecast && out.forecast.verdict) };
+  }
+  const st = pvSlowCache.st;
   if (st) {
     const full = series.length >= 14, sum = (xs) => xs.reduce((x, d) => x + d.cost, 0);
     const wk = sum(series.slice(-7)), prev = full ? sum(series.slice(0, 7)) : 0;
     out.stats = { ...st, series, week: Math.round(wk), prevWeek: full ? Math.round(prev) : null, change: full && prev > 0 ? r2(wk / prev - 1) : null };
   }
-  const lg = pvTips(reqs, oldest, dayStart, dayCosts.length, out.forecast && out.forecast.verdict);
+  const lg = pvSlowCache.lg;
   out.effort = lg.effort;
   out.tips = lg.tips;
   return out;
@@ -2825,19 +3166,117 @@ function readSwitcher() {
     const w = usage[id] && usage[id].week;
     if (!w || typeof w.pct !== 'number' || !(Number(w.resetsAt) > 0)) continue;
     const fa = Number(usage[id].fetchedAt) || 0;
-    profiles.push({ id, label: typeof labels[id] === 'string' ? labels[id].slice(0, 40) : null, pct: w.pct, resetsAt: Number(w.resetsAt) * 1000, fetchedAt: fa > 1e12 ? fa : fa * 1000 });
+    const se = usage[id].session;
+    const session = se && typeof se.pct === 'number' ? { pct: se.pct, resetsAt: Number(se.resetsAt) > 0 ? Number(se.resetsAt) * 1000 : null } : null;
+    profiles.push({ id, label: typeof labels[id] === 'string' ? labels[id].slice(0, 40) : null, pct: w.pct, resetsAt: Number(w.resetsAt) * 1000, fetchedAt: fa > 1e12 ? fa : fa * 1000, session });
   }
   const la = Number(auto.lastSwitchAt) || 0;
-  const val = { profiles, activeId: typeof auto.lastTo === 'string' ? auto.lastTo : null, activeAt: la > 1e12 ? la : la * 1000, weekLimit: Number(auto.weekLimit) || 100 };
+  const weekLines = {};
+  if (auto.weekLines && typeof auto.weekLines === 'object') for (const [k, v] of Object.entries(auto.weekLines)) if (/^[0-9a-f]{6,64}$/i.test(k) && Number(v) > 0) weekLines[k] = Number(v);
+  const val = { profiles, activeId: typeof auto.lastTo === 'string' ? auto.lastTo : null, activeAt: la > 1e12 ? la : la * 1000, weekLimit: Number(auto.weekLimit) || 100, weekLines };
   swCache = { sig, val };
   return val;
 }
 
-let pvLast = pvReadJson(PLAN_FILE);
+// the switcher's 12-hour relay (~/.claude-accounts/forecast.json), used while it is under 15 minutes old
+let swFcCache = { m: 0, v: null };
+function readSwitcherForecast(now) {
+  const f = path.join(SWITCHER_DIR, 'forecast.json'), m = pvMtime(f);
+  if (!m) return null;
+  if (swFcCache.m !== m) {
+    const d = pvReadJson(f), ms = (v) => Number(v) > 0 ? Number(v) * 1000 : null;
+    swFcCache = { m, v: d && typeof d === 'object' ? { at: ms(d.generatedAt), horizonEnd: ms(d.horizonEnd), stopAt: ms(d.stopAt), backAt: ms(d.backAt),
+      action: typeof d.action === 'string' ? d.action.slice(0, 40) : null, target: typeof d.target === 'string' ? d.target.slice(0, 64) : null,
+      reason: typeof d.reason === 'string' ? d.reason.slice(0, 200) : null, moneySource: typeof d.moneySource === 'string' ? d.moneySource.slice(0, 20) : null,
+      activeId: typeof d.activeId === 'string' ? d.activeId.slice(0, 64) : null, unitsPerHour: Number(d.unitsPerHour) > 0 ? Number(d.unitsPerHour) : null } : null };
+  }
+  const v = swFcCache.v;
+  return v && v.at && now - v.at <= 15 * 60e3 ? v : null;
+}
+// measured heavy hours (burn-hours ranges) as a drain multiplier; none measured = no change
+function pvHeavyMult(bh) {
+  if (!bh || !Array.isArray(bh.ranges) || !bh.ranges.length) return null;
+  const tz = bh.timeZone || bhZone(), mins = (hm) => { const [h, m] = String(hm).split(':').map(Number); return h * 60 + m; };
+  const R = bh.ranges.map((r) => ({ a: mins(r.start), b: mins(r.end), k: Math.min(3, Math.max(1, Number(r.ratio) || 1)) })).filter((r) => r.a >= 0 && r.b >= 0);
+  if (!R.length) return null;
+  return (t) => {
+    const m = Math.floor(((((t + pvOffset(t, tz)) % 864e5) + 864e5) % 864e5) / 60e3);
+    for (const r of R) if (r.a <= r.b ? m >= r.a && m < r.b : m >= r.a || m < r.b) return r.k;
+    return 1;
+  };
+}
+
+// ~/.ccusagex/burn-plan.json: the shared calculation CCSwitcherX reads (agreed with its session 2026-11-04). Pulse owns
+// the $ and the order; the switcher owns the live checks, its per-account stop lines and when to move. Ids, % and $
+// only, never names. Written atomically about once a minute; the switcher falls back to its own soonest-first rule
+// when it is missing, damaged, not v1 or over 15 minutes old.
+const BURN_PLAN_FILE = path.join(DATA_DIR, 'burn-plan.json');
+let burnPlanAt = 0;
+function writeBurnPlan(out, now) {
+  const b = out && out.budget;
+  if (!b || now - burnPlanAt < 50e3) return;
+  const rows = b.order.filter((r) => r.id);
+  if (!rows.length) return;
+  const doc = { v: 1, at: now, weekLimit: b.weekLimit, usdPerHour: out.runway ? out.runway.perHour : null, budgetPerHour: b.ratePerHour, order: rows.map((r) => r.id),
+    accounts: rows.map((r) => ({ id: r.id, pct: r.pct, line: r.line, resetsAt: r.resetsAt, perPct: r.perPct, rate: r.rate, spareUsd: r.spare, extraUsd: r.extra, sessionUsd: r.sessionUsd, lostAtResetUsd: r.lostAtReset })) };
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const tmp = BURN_PLAN_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(doc, null, 1));
+    fs.renameSync(tmp, BURN_PLAN_FILE);
+    burnPlanAt = now;
+  } catch { /* try again next minute */ }
+}
+
+// Waste alert (#4): a private message before a reset that would leave $ unused, about 24 h and 6 h before. Off unless
+// ~/.ccusagex/alerts.json (local, never in the repo) holds { "enabled": true, "command": ["exe", "arg", "{text}", ...],
+// "minUsd": 20 }. Each (account, reset, stage) is sent once; state in alerts-state.json.
+const ALERTS_FILE = path.join(DATA_DIR, 'alerts.json'), ALERTS_STATE = path.join(DATA_DIR, 'alerts-state.json');
+function alertsInfo() { const c = pvReadJson(ALERTS_FILE); return { configured: !!(c && Array.isArray(c.command) && c.command.length), enabled: !!(c && c.enabled), minUsd: c && c.minUsd > 0 ? c.minUsd : 20 }; }
+function alertSend(text, cb) {
+  const c = pvReadJson(ALERTS_FILE);
+  if (!c || !Array.isArray(c.command) || !c.command.length) return cb && cb(new Error('not configured'));
+  const [cmd, ...args] = c.command.map((x) => String(x).split('{text}').join(text));
+  require('child_process').execFile(cmd, args, { windowsHide: true, timeout: 60e3 }, (e) => cb && cb(e || null));
+}
+function pvAlertText(a, tz) {
+  const when = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(a.resetsAt);
+  return `Claude Pulse: ${a.label || 'An account'} resets ${when} with about $${a.lostAtReset} of work unused at your current pace. Put big jobs on it before then.`;
+}
+function alertsCheck(out, now) {
+  const info = alertsInfo();
+  if (!info.enabled || !info.configured || !out || !out.budget) return;
+  const st = pvReadJson(ALERTS_STATE) || {};
+  let changed = false;
+  for (const k of Object.keys(st)) if (now - st[k] > 9 * 864e5) { delete st[k]; changed = true; }
+  for (const a of out.budget.order) {
+    const left = a.resetsAt - now;
+    if (!(a.lostAtReset >= info.minUsd) || left <= 0) continue;
+    const stage = left <= 6 * 3600e3 ? '6h' : left <= 24 * 3600e3 ? '24h' : null;
+    if (!stage) continue;
+    const key = (a.id || a.label) + '|' + a.resetsAt + '|' + stage;
+    if (st[key]) continue;
+    st[key] = now; changed = true;
+    alertSend(pvAlertText(a, out.timeZone || bhZone()), (e) => { if (e) console.error('alert not sent: ' + e.message); });
+  }
+  if (changed) try { fs.writeFileSync(ALERTS_STATE, JSON.stringify(st)); } catch { /* next minute */ }
+}
+// your own list of big jobs for days with money at risk: ~/.ccusagex/use-it.json, an array of short strings
+function readUseIt() { const v = pvReadJson(path.join(DATA_DIR, 'use-it.json')); return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 5).map((x) => x.slice(0, 80)) : []; }
+
+let pvLast = pvReadJson(PLAN_FILE), pvLatest = null;
 function planValuePayload() {
   limitsRefresh(2000);
-  const { _save: sv, ...out } = computePlanValue(LIM.hist.points, sortedList(), readSwitcher(), Date.now(), bhZone(), pvLast);
   const now = Date.now();
+  let mult = null;
+  try { mult = pvHeavyMult(computeBurnHours(LIM.hist.points, sortedList(), widgetConfig().heavyHours || {})); } catch { mult = null; }
+  const fc = readSwitcherForecast(now);
+  const { _save: sv, ...out } = computePlanValue(LIM.hist.points, sortedList(), readSwitcher(), now, bhZone(), pvLast, { mult, swForecast: fc });
+  if (out.extras) out.extras.useIt = readUseIt();
+  out.alerts = alertsInfo();
+  out.switcherNext = fc && (fc.target || fc.reason) ? { action: fc.action, target: fc.target, reason: fc.reason, moneySource: fc.moneySource } : null;
+  writeBurnPlan(out, now);
+  pvLatest = out;
   if (sv && (sv.pooled || sv.acc.length) && (!pvLast || now - (pvLast.savedAt || pvLast.at || 0) > PV.SAVE_EVERY_MS)) {
     const prev = pvLast || {}, acc = { ...(prev.acc || {}) };
     for (const [id, perPct] of sv.acc) acc[id] = { perPct, at: now };
@@ -2875,6 +3314,7 @@ const HOST_OK = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
 function handle(req, res) {
   try {
     if (!HOST_OK.test(req.headers.host || '')) { res.writeHead(403); return res.end('Forbidden'); } // DNS-rebinding guard
+    if (req.method === 'POST' && (req.url === '/api/switch' || req.url === '/api/alerts')) return pvPost(req, res);
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end('Method not allowed'); }
     const u = new URL(req.url, 'http://localhost');
     const q = u.searchParams;
@@ -2934,6 +3374,41 @@ function handle(req, res) {
   }
 }
 
+// The only two writes (1.7.0): POST /api/switch {id} runs CCSwitcherX's own switch command for an account in the pool;
+// POST /api/alerts {enabled} turns the waste alert on or off. Same-machine pages only: the Host guard above, an
+// Origin that is this server (or none, as the widget's WebView sends), the X-Pulse header (a cross-site form cannot
+// set it) and a small JSON body.
+function pvPost(req, res) {
+  const origin = req.headers.origin;
+  if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return sendJson(res, { error: 'forbidden' }, 403);
+  if (req.headers['x-pulse'] !== '1' || !/^application\/json/i.test(req.headers['content-type'] || '')) return sendJson(res, { error: 'forbidden' }, 403);
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 1024) req.destroy(); });
+  req.on('end', () => {
+    let d;
+    try { d = JSON.parse(body || '{}'); } catch { return sendJson(res, { error: 'bad json' }, 400); }
+    if (req.url === '/api/alerts') {
+      const c = pvReadJson(ALERTS_FILE);
+      if (!c || !Array.isArray(c.command)) return sendJson(res, { error: 'alerts are not set up on this PC' }, 409);
+      c.enabled = !!d.enabled;
+      try { fs.writeFileSync(ALERTS_FILE, JSON.stringify(c, null, 1)); } catch { return sendJson(res, { error: 'could not save' }, 500); }
+      memo.clear();
+      return sendJson(res, alertsInfo());
+    }
+    const id = typeof d.id === 'string' ? d.id : '';
+    const sw = readSwitcher();
+    if (!/^[0-9a-f]{6,64}$/i.test(id) || !sw || !sw.profiles.some((p) => p.id === id)) return sendJson(res, { error: 'unknown account' }, 400);
+    const py = process.env.CCU_PYTHON || 'python';
+    require('child_process').execFile(py, ['-I', path.join(SWITCHER_DIR, 'claude_accounts.py'), '--json', 'switch', id], { windowsHide: true, timeout: 90e3 }, (e, out) => {
+      let r = null;
+      try { r = JSON.parse(String(out || '').trim().split(/\r?\n/).pop()); } catch { r = null; }
+      swCache.sig = null; memo.clear();
+      if (e) return sendJson(res, { ok: false, error: 'switch failed' }, 500);
+      sendJson(res, { ok: true, result: r && typeof r === 'object' ? { ok: r.ok !== false } : null });
+    });
+  });
+}
+
 function createServer() { return http.createServer(handle); }
 
 function start(port = PORT, host = HOST) {
@@ -2953,6 +3428,8 @@ if (require.main === module) {
   loadStore();
   scan();
   const timer = setInterval(scan, Math.max(2, CONFIG.scanIntervalSeconds || 5) * 1000);
+  // the burn plan for the switcher and the waste alert keep going while no widget is open
+  setInterval(() => { try { memoJson('/api/plan-value?|pv', planValuePayload); alertsCheck(pvLatest, Date.now()); } catch (e) { console.error(String(e && e.message || e)); } }, 60e3).unref();
   start(PORT, HOST).then(() => {
     probeStart();
     console.log(`CCUsageX on http://${HOST}:${PORT}  (reading ${PROJECTS_DIR}, since ${START_DATE})`);
@@ -2969,6 +3446,6 @@ if (require.main === module) {
 
 module.exports = {
   start, createServer, handle, scan, scanFile, handleLine, loadStore, saveStore, resetState, newFstate,
-  computeBurnHours, burnHoursPayload, computePlanValue, planValuePayload, pvRunway, pvSafeDay, pvTips, pvStats, pvDayStart, liveState, stopLive, computeLimits, limitsPayload, probeStart, probeStop, probeRun, probeRefresh, probePublic, probeParseOutput, probeSnapshot, probeResolveBin, probeInterval, probeTouch, _probe: PROBE, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
+  computeBurnHours, burnHoursPayload, computePlanValue, planValuePayload, pvRunway, pvSafeDay, pvSim, pvPlanRates, pvPlanSum, pvFloorDay, pvBudget, pvSessionRatios, pvExtras, pvLine, pvHeavyMult, writeBurnPlan, alertsCheck, pvAlertText, readSwitcher, readSwitcherForecast, pvTips, pvStats, pvDayStart, liveState, stopLive, computeLimits, limitsPayload, probeStart, probeStop, probeRun, probeRefresh, probePublic, probeParseOutput, probeSnapshot, probeResolveBin, probeInterval, probeTouch, _probe: PROBE, computeCost, priceFor, summary, filterRequests, live, status, resolveOrphans,
   _state: { get store() { return store; }, reqMap, byPrompt, STORE_FILE, START_MS, PROJECTS_DIR },
 };

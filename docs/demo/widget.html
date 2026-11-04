@@ -29,7 +29,9 @@
 
     <main id="views">
       <div id="view-main" class="stack">
-        <section id="sec-peak" class="panel enter" style="--i:0">
+        <section class="panel enter" id="sec-budget" style="--i:0" data-empty="1" hidden></section>
+        <section class="panel enter" id="sec-more" style="--i:1" data-empty="1" hidden></section>
+        <section id="sec-peak" class="panel enter" style="--i:2">
           <div class="clock">
             <svg viewBox="0 0 120 120" id="clockSvg" aria-hidden="true">
               <circle class="trk" cx="60" cy="60" r="42" stroke-width="7"/>
@@ -96,14 +98,35 @@
 
       <div id="view-settings" hidden>
         <h3>Widget settings</h3>
+        <div class="grp">Main</div>
+        <div class="panel" style="padding:4px 12px">
+          <label class="row"><span>Today’s budget<small>$ for today across all accounts, with rollover</small></span><input type="checkbox" data-sec="budget"><i class="tg"></i></label>
+          <label class="row"><span>Run dry<small>when you hit a limit if you keep going</small></span><input type="checkbox" data-sec="dry"><i class="tg"></i></label>
+          <label class="row"><span>Burn order<small>which account first, what each reset loses</small></span><input type="checkbox" data-sec="order"><i class="tg"></i></label>
+        </div>
+        <div class="grp">Extras</div>
+        <div class="panel" style="padding:4px 12px">
+          <label class="row"><span>Coach line<small>push or ease off, from your last 3 hours</small></span><input type="checkbox" data-sec="coach"><i class="tg"></i></label>
+          <label class="row"><span>Account picker<small>a Switch button on each account</small></span><input type="checkbox" data-sec="picker"><i class="tg"></i></label>
+          <label class="row"><span>10-day strip<small>budget per day, resets and dry days</small></span><input type="checkbox" data-sec="strip"><i class="tg"></i></label>
+          <label class="row"><span>Prompts left<small>today, per model and effort</small></span><input type="checkbox" data-sec="whatif"><i class="tg"></i></label>
+          <label class="row"><span>Today by workspace<small>where today’s $ went</small></span><input type="checkbox" data-sec="spend"><i class="tg"></i></label>
+          <label class="row"><span>Forecast report card<small>how right the forecasts were</small></span><input type="checkbox" data-sec="report"><i class="tg"></i></label>
+          <label class="row"><span>Use it or lose it<small>jobs that fit before a reset wastes $</small></span><input type="checkbox" data-sec="useit"><i class="tg"></i></label>
+          <label class="row" id="alRow" hidden><span>Waste alert<small>private message 24 h and 6 h before</small></span><input type="checkbox" id="alIn"><i class="tg"></i></label>
+        </div>
+        <div class="grp">Older cards</div>
         <div class="panel" style="padding:4px 12px">
           <label class="row"><span>Peak clock<small>24-hour ring and countdown</small></span><input type="checkbox" data-sec="peak"><i class="tg"></i></label>
           <label class="row"><span>US busy hours<small>band on the clock, informational</small></span><input type="checkbox" data-sec="usp"><i class="tg"></i></label>
+          <label class="row"><span>Today by hour<small>chart against your usual day</small></span><input type="checkbox" data-sec="hours"><i class="tg"></i></label>
           <label class="row"><span>5-hour session<small>usage ring and reset</small></span><input type="checkbox" data-sec="session"><i class="tg"></i></label>
           <label class="row"><span>Weekly limit<small>usage ring and reset</small></span><input type="checkbox" data-sec="weekly"><i class="tg"></i></label>
           <label class="row"><span>Per-model weekly<small>for example Fable</small></span><input type="checkbox" data-sec="models"><i class="tg"></i></label>
           <label class="row"><span>Right now<small>live pace: when to push, when to stop</small></span><input type="checkbox" data-sec="pace"><i class="tg"></i></label>
           <label class="row"><span>Plan value<small>API-$ the plan gives, today, accounts</small></span><input type="checkbox" data-sec="plan"><i class="tg"></i></label>
+          <label class="row"><span>Yesterday<small>in Plan value</small></span><input type="checkbox" data-sec="yday"><i class="tg"></i></label>
+          <label class="row"><span>Save tips<small>in Plan value</small></span><input type="checkbox" data-sec="tips"><i class="tg"></i></label>
           <label class="row"><span>Forecast &amp; stats<small>next 7 days chart, last 14 days, habits</small></span><input type="checkbox" data-sec="insights"><i class="tg"></i></label>
         </div>
         <div class="seg" role="group" aria-label="Size"><button data-mode="expanded">Expanded</button><button data-mode="compact">Compact</button></div>

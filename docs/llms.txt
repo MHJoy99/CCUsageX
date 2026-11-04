@@ -22,4 +22,5 @@ CCUsageX is a Claude Code usage dashboard, token usage analyzer and cost tracker
 ## Optional
 
 - [Issues](https://github.com/MHJoy99/CCUsageX/issues)
+- [CCSwitcherX](https://github.com/MHJoy99/CCSwitcherX): sister project, switch Claude Code between several of your own accounts; Claude Pulse plans the day across them
 - [ccusage](https://github.com/ryoppippi/ccusage): CLI usage reports, a complementary tool

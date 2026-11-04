@@ -563,8 +563,22 @@ spread like the usual day, at least half of the hours left)}`; `future` `{from, 
 tracks), dry, heavyDry, expires[{label, at, usd}], unused, load{usual, heavy, week, accounts}, today{soFar, usualByNow,
 end, usualEnd}}`; `stats` `{days, cost, perDay, prompts, promptsPerDay, perPrompt, tokensPerDay, outPerDay, cacheHit,
 cacheSavedPerDay, helperShare, models[{name, share}], series[{from, cost}] (14 days), week, prevWeek, change}`.
-The last good rate per account is kept in `~/.ccusagex/plan-value.json`. See
-[WIDGET.md](WIDGET.md#how-plan-value-is-measured).
+1.7.0 adds `budget` `{today{budget, spent, left, end}, tomorrow, ratePerHour, rateUntil, pacePerHour, paceFallback,
+top, topLabel, behind, floorDay, ceilDay, weekLimit, correction, heavyHours, segs, dry[{key (burst|now|usual|heavy),
+label, perDay, until (null = never), back, reason (5h|weekly), from (switcher|pulse), backUsd}], order[{id, label,
+active, pct, resetsAt, perPct, rate, line, spare, extra, lostAtReset, fullAt, session, sessionUsd, sessionThin}],
+lost[{at, usd, labels}], strip[10]{from, budget, resets, dryHours, lost}}`; `extras` `{whatIf[{model, effort, n,
+perPrompt, left}], spend[{name, cost}], report{days, last, avgMiss, bias, correction, recent[{from, pred, actual}]},
+jobs[{name, perJob, n}], useIt[]}`; `alerts` `{configured, enabled, minUsd}`; `switcherNext` `{action, target, reason,
+moneySource}|null`. The same plan (ids, % and $ only) is written to `~/.ccusagex/burn-plan.json` about once a minute
+for CCSwitcherX. The last good rate per account is kept in `~/.ccusagex/plan-value.json`. See
+[WIDGET.md](WIDGET.md#todays-budget).
+
+### `POST /api/switch`, `POST /api/alerts`
+
+The only writes (1.7.0). `{id}` switches to an account in the CCSwitcherX pool through its own command; `{enabled}`
+turns the waste alert on or off. Header `X-Pulse: 1`, JSON body, same-machine `Origin` only; see
+[SECURITY.md](../SECURITY.md).
 ### Static files
 
 `GET /` serves `public/index.html`. Any other `GET` path maps to a file under `public/` (`app.js`, `charts.js`,

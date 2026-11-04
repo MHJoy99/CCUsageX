@@ -6,6 +6,24 @@ desktop with the Rainmeter skin in `integrations/rainmeter/ClaudePulse/`.
 
 ## What it shows
 
+By default (1.7.0) the widget shows three cards; everything else is behind its own switch in the settings gear.
+
+- **Today's budget**: the dollars of work your accounts can take today, all accounts together, so every weekly
+  allowance is used before it resets. Unused budget rolls over. Shows spent and left, tomorrow's budget, the $/h that
+  keeps you on plan and until when, and the range of $/day that wastes nothing. See [Today's budget](#todays-budget).
+- **Run dry**: when you hit a limit if you keep going, at this pace, your usual pace and a heavy day (and, when the
+  account switcher has a fresh live check, the last few minutes), with which limit stops you (5-hour or weekly) and
+  when it comes back.
+- **Burn order**: which account to use first (the one that resets soonest with work left), each with its weekly %,
+  its stop line, the dollars left, its reset and what it loses at the reset at this pace.
+
+Extras, each off until you turn it on: **live coach** line ("Ease to $13/h to last the day"), **account picker**
+(a Switch button per account, two clicks), **waste alert** (a private message about 24 h and 6 h before a reset
+that would leave $20 or more unused; shown only when set up, see [Waste alert](#waste-alert)), **next 10 days**
+(budget per day, resets, dry hours), **prompts left today** (by model and effort, from your last 7 days), **today by
+workspace**, **forecast report card** (how far the plain forecast missed over 14 days; budgets are corrected by it),
+and **use it or lose it** (what to put on an account before it loses money). The older cards below are switches too.
+
 - **Peak clock.** A 24-hour dial in your computer's time zone with two bands:
   - **Your heavy hours**, measured from your own history (see [How heavy hours are measured](#how-heavy-hours-are-measured)).
   - **US busy hours**, informational only (see [The US busy-hours band](#the-us-busy-hours-band)).
@@ -84,6 +102,34 @@ All times on the widget are shown in your computer's local time zone. Edits to `
 CCUsageX. The widget refreshes its heavy-hours schedule every 10 minutes (or reload the widget). Rainmeter variables
 live in the `[Variables]` section of the installed `ClaudePulse.ini`: `Port` (the CCUsageX port, set by
 `scripts\install-widget.ps1 -Port`) and `W`/`H` (starting size; the page resizes the window itself).
+
+## Today's budget
+
+All three cards come from one plan in the server (`pvBudget`), the same one CCSwitcherX reads from
+`~/.ccusagex/burn-plan.json`:
+
+1. Each account's room is its stop line (the switcher's per-account line, else its `weekLimit`) minus its weekly %,
+   in dollars at that account's own $ per 1%.
+2. Accounts are used soonest reset first. A day's budget is the steady $/day that spends every account's room before
+   its reset without running dry, counting the 5-hour windows; today gets what is left of it after today's spend, and
+   anything you leave rolls into the next days.
+3. The 14-day forecast check (report card) corrects the plan when you keep using less or more than forecast
+   (x0.80 to x1.25, from the median of the last 7 days).
+4. Run dry simulates the accounts hour by hour at each pace, with measured heavy hours weighted in when there are
+   any. A switcher forecast under 15 minutes old is shown as its own "Last few minutes" line.
+
+The slice above a per-account stop line is the switcher's safety margin and never counts as lost.
+
+### Waste alert
+
+Off unless `~/.ccusagex/alerts.json` exists (it stays on your PC, never in the repo):
+
+```json
+{ "enabled": true, "minUsd": 20, "command": ["python", "my-notify.py", "{text}"] }
+```
+
+`{text}` is replaced by the message. Each account and reset is sent once per stage (24 h and 6 h before). The widget's
+switch flips `enabled`.
 
 ## How heavy hours are measured
 

@@ -226,7 +226,7 @@ function Do-Start {
         New-Item -ItemType Directory -Force -Path $StateDir, $LogDir | Out-Null
         # Lightweight mode: smaller young-generation heap and size-optimised GC roughly halve RAM;
         # the old-space cap leaves headroom for years of logs.
-        $nodeFlags = @('--max-semi-space-size=2', '--optimize-for-size', '--max-old-space-size=192')
+        $nodeFlags = @('--max-semi-space-size=2', '--optimize-for-size', '--max-old-space-size=768')
         $proc = Start-Process -FilePath $node `
             -ArgumentList ($nodeFlags + @(('"{0}"' -f $ServerJs), '--port', "$Port")) `
             -WorkingDirectory $Root -WindowStyle Hidden -PassThru `

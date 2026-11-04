@@ -151,6 +151,13 @@ The US busy-hours band is informational only: Anthropic removed the peak-hour li
 [2026-05-06](https://www.anthropic.com/news/higher-limits-spacex). Your heavy hours are measured from your own history
 and need at least 3 days of data. See [WIDGET.md](WIDGET.md).
 
+## I have several Claude accounts. How do I use them all well?
+
+Use [CCSwitcherX](https://github.com/MHJoy99/CCSwitcherX), the sister project, to switch Claude Code between your own
+accounts in one click. CCUsageX finds it on its own: the Claude Pulse widget turns all accounts into one daily dollar
+budget, shows when each runs dry and which account to use first (the one that resets soonest), warns before a reset
+would leave work unused, and gives each account a Switch button. CCSwitcherX follows the same plan when it moves on.
+
 ## How do I export to CSV?
 
 Click the export button in the dashboard header. It downloads every request that matches the current filters, newest
