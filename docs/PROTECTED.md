@@ -18,3 +18,6 @@ Anything here stays unless the owner asks for that exact change.
 - 2026-11-04 (1.7.0): owner: "the Claude Pulse is not doing enough to show me how much i should use and when i will
   hit the limit, at what time, if i keep using." Added the three default cards and the extras; older cards behind
   switches. Undo: turn the switches back on in settings, or check out 1.6.0.
+- 2026-11-04: owner: "do which ever we can? with real imags assets and all". New widget screenshots and two promo
+  images in `docs/screenshots` (demo data only; promo HTML sources stay out of the repo). The site gallery shows
+  each shot at a fixed width (was fixed 420 px height). Undo: `git revert` that commit.

@@ -850,10 +850,10 @@
     if (!lost.length) return html + '<div class="bg-f sm">Nothing is at risk at this pace. Work as usual.</div>';
     var l = lost[0];
     html += '<div class="bg-f"><b>' + money(l.usd) + '</b> on ' + l.labels.map(esc).join(', ') + ' is lost ' + esc(fmtAt(l.at)) + '. Put these on it first:</div>';
-    (e.useIt || []).forEach(function (x) { html += '<div class="ex-u"><i></i>' + esc(x) + '</div>'; });
+    (e.useIt || []).forEach(function (x) { html += '<div class="ex-u"><i></i><span>' + esc(x) + '</span></div>'; });
     (e.jobs || []).forEach(function (j) {
       var n = j.perJob > 0 ? Math.floor(l.usd / j.perJob) : 0;
-      if (n > 0) html += '<div class="ex-u"><i></i>' + esc(j.name) + ' jobs: about <b>' + n + '</b> (≈ ' + money(j.perJob) + ' each)</div>';
+      if (n > 0) html += '<div class="ex-u"><i></i><span>' + esc(j.name) + ' jobs: about <b>' + n + '</b> (≈ ' + money(j.perJob) + ' each)</span></div>';
     });
     return html;
   }

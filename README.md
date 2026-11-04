@@ -154,6 +154,8 @@ Details, including the data fields and the burn-rate projection, are in
 
 ## Desktop widget (Windows, Rainmeter)
 
+<img src="docs/screenshots/promo-pulse.png" alt="Claude Pulse answers how much Claude you can use today: a daily budget across all your accounts, when you would run dry, and which account to burn first (demo data)" width="100%">
+
 **Claude Pulse** is a small desktop widget that keeps your limits in sight while you work. It shows:
 
 - by default, three cards for one or many accounts: **today's budget** (the dollars of work your accounts can take
@@ -174,6 +176,12 @@ Details, including the data fields and the burn-rate projection, are in
 - a plain **will it last?** answer for all accounts together ("safe up to $X/day"), and effort/model tips from your own logs,
 - **insights**: the next 7 days of work left at your usual and heavy pace, and the last 14 days of spend, prompts,
   cache, tokens, models and helpers.
+
+<p align="center">
+<img src="docs/screenshots/widget-today.png" alt="Claude Pulse default view: today's budget, run dry and burn order (demo data)" width="32%">
+<img src="docs/screenshots/widget-extras.png" alt="Claude Pulse with extras on: coach line, next 10 days, prompts left (demo data)" width="32%">
+<img src="docs/screenshots/widget-settings.png" alt="Claude Pulse settings: main cards and extras, one switch each" width="32%">
+</p>
 
 Install it on Windows with [Rainmeter](https://www.rainmeter.net) (CCUsageX must be running):
 

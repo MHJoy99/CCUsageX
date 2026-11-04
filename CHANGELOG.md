@@ -5,6 +5,17 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Widget "Use it or lose it" rows kept the job count on one line ("about **1** (≈ $18 each)") instead of breaking it.
+
+### Changed
+
+- New 1.7.0 widget screenshots (default plan, extras on, compact, settings) on the site and in the README, plus two
+  promo images (`docs/screenshots/promo-pulse*.png`), all from the synthetic demo.
+
 ## [1.7.0] - 2026-11-04
 
 ### Added
