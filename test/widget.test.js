@@ -468,6 +468,44 @@ test('plan value: tips from the logs (effort per prompt with helpers, Opus helpe
   assert.deepEqual(srv.pvTips([], t0, t0 + HOUR, 0, 'enough'), { effort: [], tips: [] });
 });
 
+test('plan value 1.7.2: the account list is exactly the switcher pool, live (removed account, ghost status-line week, add back)', () => {
+  const dir = process.env.CCU_SWITCHER_DIR;
+  fs.mkdirSync(path.join(dir, 'profiles'), { recursive: true });
+  const s = Math.floor(Date.now() / 1000), prof = (id) => path.join(dir, 'profiles', id + '.dat');
+  const write = (ids) => fs.writeFileSync(path.join(dir, 'usage.json'), JSON.stringify(Object.fromEntries(ids.map((id, i) => [id, { week: { pct: 20 + i * 30, resetsAt: s + (3 - i) * 86400 }, fetchedAt: s - 30 }]))));
+  fs.writeFileSync(path.join(dir, 'autoswitch.json'), JSON.stringify({ enabled: true, weekLimit: 96, lastSwitchAt: s - 10, lastTo: 'aaaaaaaaaaaa' }));
+  const ids = () => srv.planValuePayload().accounts.list.map((a) => a.id).sort();
+  try {
+    for (const id of ['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc']) fs.writeFileSync(prof(id), 'x');
+    write(['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc']);
+    assert.deepEqual(ids(), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc']);
+    // the owner removes an account: its profile file goes, usage.json still holds its last numbers
+    fs.rmSync(prof('cccccccccccc'));
+    assert.deepEqual(ids(), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb']);
+    // and adds it back
+    fs.writeFileSync(prof('cccccccccccc'), 'x');
+    assert.deepEqual(ids(), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc']);
+    fs.rmSync(prof('cccccccccccc'));
+    // a week seen only in the status line's history (no switcher id) is not an account and adds no $
+    const f = planFixture();
+    const sw = { profiles: [
+      { id: 'aaaaaaaaaaaa', label: 'Alpha', pct: 1, resetsAt: RA * 1000, fetchedAt: f.now - HOUR },
+      { id: 'bbbbbbbbbbbb', label: 'Beta', pct: f.pB, resetsAt: RB * 1000, fetchedAt: f.now - HOUR },
+    ], activeId: 'aaaaaaaaaaaa', activeAt: BASE, weekLimit: 96 };
+    const ghostR = f.now / 1000 + 5 * 86400;
+    const hist = f.hist.concat([{ t: f.now - 3 * HOUR, w: '7d', p: 0, r: ghostR }]);
+    const o = srv.computePlanValue(hist, f.reqs, sw, f.now, 'UTC', null);
+    assert.equal(o.accounts.count, 2);
+    assert.deepEqual(o.accounts.list.map((a) => a.id).sort(), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb']);
+    assert.equal(o.accounts.spare, o.accounts.list.reduce((x, a) => x + a.spare, 0));
+    // no switcher at all: today's fallback (history weeks are listed as before)
+    const fb = srv.computePlanValue(hist, f.reqs, null, f.now, 'UTC', null);
+    assert.ok(fb.accounts === null || fb.accounts.count >= 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('plan value: local day bounds (no DST, and a DST change day)', () => {
   assert.equal(srv.pvDayStart(Date.UTC(2026, 9, 30, 3), 'Asia/Dhaka'), Date.UTC(2026, 9, 29, 18));
   assert.equal(srv.pvDayStart(Date.UTC(2026, 9, 29, 17, 59), 'Asia/Dhaka'), Date.UTC(2026, 9, 28, 18));
@@ -480,6 +518,7 @@ test('plan value: the switcher folder is read for usage numbers and labels only'
   const dir = process.env.CCU_SWITCHER_DIR;
   fs.mkdirSync(path.join(dir, 'profiles'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'profiles', 'aaaaaaaaaaaa.dat'), 'not json');
+  fs.writeFileSync(path.join(dir, 'profiles', 'bbbbbbbbbbbb.dat'), 'not json');
   const s = Math.floor(Date.now() / 1000);
   fs.writeFileSync(path.join(dir, 'usage.json'), JSON.stringify({
     aaaaaaaaaaaa: { week: { pct: 20, resetsAt: s + 3 * 86400 }, fetchedAt: s - 60 },

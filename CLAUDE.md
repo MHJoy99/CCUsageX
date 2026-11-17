@@ -9,6 +9,8 @@
   `~/.ccusagex/burn-plan.json` (v1, ids/%/$ only); the switcher owns live checks, per-account `weekLines` and when to
   move. Change the file format only together with that session. Never edit switcher code; never trigger a real
   switch while testing.
+- Accounts (2026-11-18): the account list is the switcher's profile file names (`readSwitcher` pool) + usage.json; id-less
+  status-line weeks are never accounts while the switcher is readable. Undo: revert that commit.
 - Tests: `npm test` (all must pass). Run: `CCUsageX.ps1 restart -NoOpen`, then check `/api/plan-value` and
   `/widget.html`; Rainmeter skin `ClaudePulse` refresh. Test windows only on the second monitor, never take focus.
 - Memory: plan-value stats/tips are cached (`pvSlowCache`, server.js); never rebuild them per request (OOM 2026-11-04).

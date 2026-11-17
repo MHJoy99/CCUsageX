@@ -5,6 +5,18 @@ All notable changes to CCUsageX are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Pulse listed an account that was no longer in CCSwitcherX and counted its $ in every number (2026-11-18: a
+  status-line-only account row with no switcher id added most of the spare $, so the runway, dry time, forecast, burn
+  plan and `burn-plan.json` were too optimistic). The account list is now exactly the switcher's saved profiles: the profile
+  file NAMES in `~/.claude-accounts/profiles` (never opened) decide who is in the pool, a removed account's old
+  `usage.json` numbers are ignored, and a week seen only in the status line's history with no switcher id is not an
+  account. Adding or removing an account shows within one refresh (about 15 s, no restart). No switcher folder, or no
+  readable profile list: today's behaviour. Undo: `git revert` this commit.
+
 ## [1.7.1] - 2026-11-04
 
 ### Fixed

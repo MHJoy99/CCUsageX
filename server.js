@@ -2998,8 +2998,13 @@ function computePlanValue(hist, reqs, sw, now = Date.now(), tz = bhZone(), last 
   const lastEv = events.length ? events.length - 1 : -1;
   let activeSlot = lastEv >= 0 ? evSlot[lastEv] : null;
   if (sw && sw.activeId && (lastEv < 0 || (sw.activeAt || 0) > events[lastEv].t)) activeSlot = slots.find((s) => s.id === sw.activeId) || activeSlot;
+  // 1.7.2: with the switcher's pool known, the list is exactly its accounts: a week seen only in the status line's
+  // history (removed account, other login) is never listed or counted
+  const strict = !!(sw && Array.isArray(sw.profiles) && sw.profiles.length);
+  if (strict && !(activeSlot && activeSlot.id)) activeSlot = slots.find((s) => s.id && s.id === sw.activeId) || slots.filter((s) => s.id).sort((a, b) => (b.sw.fetchedAt || 0) - (a.sw.fetchedAt || 0))[0] || null;
   const acc = [];
   for (const s of slots) {
+    if (strict && !s.id) continue;
     const h = latest.get(s), p = s.sw;
     let pct = null, resetsAt = null, at = 0, src = null;
     if (p) { pct = p.pct; resetsAt = p.resetsAt; at = p.fetchedAt || 0; src = 'switcher'; }
@@ -3181,12 +3186,19 @@ function readSwitcher() {
   const uf = path.join(SWITCHER_DIR, 'usage.json'), af = path.join(SWITCHER_DIR, 'autoswitch.json');
   const um = pvMtime(uf);
   if (!um) return null;
-  const sig = [um, pvMtime(af), pvMtime(LABELS_FILE)].join('|');
+  const pdir = path.join(SWITCHER_DIR, 'profiles');
+  const sig = [um, pvMtime(af), pvMtime(LABELS_FILE), pvMtime(pdir)].join('|');
   if (swCache.sig === sig) return swCache.val;
   const usage = pvReadJson(uf) || {}, auto = pvReadJson(af) || {}, labels = pvReadJson(LABELS_FILE) || {};
+  // the pool = the saved profiles right now (file NAMES only, never opened). usage.json keeps a removed account's last
+  // numbers, so an id is listed only while its profile file exists; no readable folder = no filter (1.7.2)
+  let pool = null;
+  try { pool = new Set(fs.readdirSync(pdir).filter((f) => /\.dat$/i.test(f)).map((f) => f.slice(0, -4).toLowerCase())); } catch { pool = null; }
+  if (pool && !pool.size) pool = null;
   const profiles = [];
   for (const id of Object.keys(usage)) {
     if (!/^[0-9a-f]{6,64}$/i.test(id)) continue;
+    if (pool && !pool.has(id.toLowerCase())) continue;
     const w = usage[id] && usage[id].week;
     if (!w || typeof w.pct !== 'number' || !(Number(w.resetsAt) > 0)) continue;
     const fa = Number(usage[id].fetchedAt) || 0;

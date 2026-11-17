@@ -11,6 +11,7 @@ Anything here stays unless the owner asks for that exact change.
 | Older cards (peak clock, rings, per-model, right now, plan value, insights) | widget | Default ON again since 1.7.1 (owner 2026-11-04), with coach + 10-day strip. Never hide them by default again without his ask. |
 | Screen-height cap + wheel scroll | `widget.js` fitScreen, `widget.css` `#card.capped` | Under Rainmeter the card never runs off the screen; the cards scroll. |
 | Rings show one account | `server.js` limOneAccount | 5-hour and weekly come from the same account (switcher active), never mixed. |
+| Accounts = switcher pool | `server.js` readSwitcher pool + computePlanValue `strict` | Pulse lists exactly the accounts saved in CCSwitcherX, live; removed or id-less status-line weeks never count (owner 2026-11-18). |
 | Light glass look | `public/widget.css` | Keep. |
 | No single account shown above 100% | widget | Never scare with >100% per account. |
 | Waste alert goes to the owner's private chat only | `~/.ccusagex/alerts.json` | Never a team group. |
